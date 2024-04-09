@@ -1,0 +1,93 @@
+---
+title: "Bayesian Coursework"
+output: pdf_document
+date: "2024-04-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r load_df}
+# Load dataset.
+sgaj <- read.csv("sgaj.csv")
+head(sgaj, 7)
+```
+
+```{r}
+library("GGally")
+ggpairs(sgaj)
+```
+
+# Part 1
+
+```{r}
+ggplot(sgaj, aes(x=time, y=measured, group=female, color=as.factor(female))) + geom_smooth() + theme_classic()
+
+ggplot(sgaj, aes(x=time, y=measured, group=age_group, color=age_group)) + geom_smooth() + theme_classic()
+```
+
+```{r}
+summary(sgaj$age)
+
+# Create age groups
+sgaj <- sgaj %>%
+  mutate(age_group = case_when(
+    age >= 18 & age <= 30 ~ "18-30",
+    age >= 31 & age <= 50 ~ "31-50",
+    age >= 51 & age <= 70 ~ "51-70",
+    age > 70 ~ "71+"
+))
+```
+
+After reviewing the age distribution in the dataset, I decided to categorise the age variable into four groups: 18-30 (young adults), 31-50 (middle-aged adults), 51-70 (older adults), and 71+ (seniors). This is done solely for visualisation purposes (not used in the model) as it allows for the ordering (and separation in facets) of patients based on their age, making the exploration of how age and gender affect SGAJ easier to interpret.
+
+```{r}
+ggplot(sgaj, aes(x = as.factor(time), y = measured, group = patient, color = as.factor(female))) + 
+  geom_point(size=3) +
+  geom_line(linewidth=1.3) + 
+  facet_wrap(~age_group, ncol=4) +
+  theme_classic() +
+  labs(
+    title = "Trajectory of SGAJ levels by Patient - Faceted by Age Group",
+    x = "Time After SEYAB Administration (hours)",
+    y = "Measured SGAJ (μmol/L)",
+    color = "Sex"
+  ) +
+  scale_color_manual(
+    values = c("blue", "pink"), 
+    labels = c("Male", "Female")  # Set labels for Male and Female
+  )
+```
+
+The plot shows the trajectory of SGAJ level (across the timepoints) for each patient, facetted by the different age groups. Here are some insights from the plot: - Each patient has a different starting level of SGAJ (time=0).
+
+-   Positive association between patient age and SGAJ levels, suggesting that older individuals tend to have higher biomarker concentrations. It also appears that the rate at which SGAJ levels change over time (hours) is not constant across all ages; for example, older patients have a faster rate (in general) of measured SGAJ growth than younger patients (comparing individuals in age groups 18-30 vs 51-70, and 71+).
+
+##### TODO: decide what to do with this comment: This suggests the need for a random slope on age.
+
+-   In younger age groups, female patients display higher SGAJ levels than their male counterparts (in most time points). In contrast, in the senior age group (71+ years), this pattern is reversed, with male patients presenting higher SGAJ levels.
+
+-   Given the limited samples, these comments are preliminary (not strong conclusions can be drawn).
+
+# Part 2
+
+#### THE PURPOSE OF THIS QUESTION IS TO BE TRANSPARENT ABOUT THE ASSUMPTIONS.
+The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{ij}$ and variance $\sigma^2$. The expected SGAJ measurement for patient `i` at time `j` is modeled as $\mu_{ij}$.
+$$
+\\ \mu_{ij} = \alpha_i + \beta\left(age_i - 56 \right)/10 + \gamma\left(time_j - 12 \right)/24 + \delta(female_i)
+\\ y_{ij} \sim \mathcal{N}(\mu_{ij}, \sigma^2)
+$$
+The variability between patients $i$ is represented by a random effect $a_i$ (patient-specific random intercept), which is assumed to be drawn from a Normal distribution with mean $\mu_a$ and variance $\sigma_a^2$. The terms involving $\beta, \gamma$, and $\delta$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled), time (centered around 12 hours and scaled to represent a day), and sex (with female coded as 1), respectively. These coefficients quantify the expected change in SGAJ levels associated with a unit change in each predictor.
+
+$$
+\\ a_{i} \sim \mathcal{N}(\mu_{a}, \sigma_a^2)
+$$
+
+
+The intercept term is $\a_i$ which represents the tge 
+
+
+However, it's also crucial to avoid being overly confident in the precision of this prior estimate, given that it's derived from a single study. A conservative approach might be to select a standard deviation that ensures the 95% credible interval of the prior roughly encompasses this range. Since 95% of the mass of a normal distribution falls within approximately 2 standard deviations from the mean, a standard deviation of around 40 μmol/L (i.e., (265-185)/2) for the prior on β0 would ensure the range 185 to 265 μmol/L falls within this interval.
