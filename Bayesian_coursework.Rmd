@@ -75,19 +75,70 @@ The plot shows the trajectory of SGAJ level (across the timepoints) for each pat
 # Part 2
 
 #### THE PURPOSE OF THIS QUESTION IS TO BE TRANSPARENT ABOUT THE ASSUMPTIONS.
-The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{ij}$ and variance $\sigma^2$. The expected SGAJ measurement for patient `i` at time `j` is modeled as $\mu_{ij}$.
+#### MAYBE MAKE THEM ALL NAMED BETA? (e.g. beta_age)
+The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{it}$ and variance $\sigma^2$. The expected SGAJ measurement for patient `i` at time `t` is modeled as $\mu_{it}$.
 $$
-\\ \mu_{ij} = \alpha_i + \beta\left(age_i - 56 \right)/10 + \gamma\left(time_j - 12 \right)/24 + \delta(female_i)
-\\ y_{ij} \sim \mathcal{N}(\mu_{ij}, \sigma^2)
+\\ \mu_{it} = \alpha_i + \beta\left(age_i - 56 \right)/10 + \gamma\left(time_t - 12 \right)/24 + \delta(female_i)
+\\ y_{it} \sim \mathcal{N}(\mu_{it}, \psi^2)
 $$
-The variability between patients $i$ is represented by a random effect $a_i$ (patient-specific random intercept), which is assumed to be drawn from a Normal distribution with mean $\mu_a$ and variance $\sigma_a^2$. The terms involving $\beta, \gamma$, and $\delta$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled), time (centered around 12 hours and scaled to represent a day), and sex (with female coded as 1), respectively. These coefficients quantify the expected change in SGAJ levels associated with a unit change in each predictor.
+The variability between patients $i$ is represented by a random effect $a_i$ (patient-specific random intercept), which is assumed to be drawn from a Normal distribution with mean $\mu_a$ and variance $\sigma_a^2$. 
 
+The model is linear and also makes the simplifying assumption that there is no interaction between the covariates (model is additive). This is the starting model for a full analysis that would have been conducted in a real publication scenario.
+
+The terms involving $\beta, \gamma$, and $\delta$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled such that a unit increase is in 10 years), time (centered around 12 hours and scaled to represent a day), and female (has the value 1 if female and zero otherwise), respectively. 
+
+## Priors:
 $$
 \\ a_{i} \sim \mathcal{N}(\mu_{a}, \sigma_a^2)
+\\ \mu_a \sim \mathcal{N}(250, 20.4^2)
+\\ \sigma_a \sim \text{Half-Normal}(0, 90^2)
+
 $$
+- I am assuming that the random intercept $a_i$ representing the deviation in baseline SGAJ level for each patient from the population average under reference conditions (age 56, female, time 12 hours), follows a Normal distribution. 
+- $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors (e.g., age, female, time) are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 250 but it can be as low as 210 and as high as 290. I purposefully made it slightly higher than what the previous study suggested since we are now centering age at 56, instead of 50. The standard deviation of $\mu_a$ is calculated as (290-210)/(1.96*2)=20.4, with a 95% upper and lower credible limit of 290 and 210 respectively.
+
+- for the random effects standard deviation $\sigma_a$, I chose to use a half-normal prior with mean 0 and standard deviation 90. 
+#### EXPAND explanation 
 
 
-The intercept term is $\a_i$ which represents the tge 
+$$
+\\ \beta \sim \mathcal{N}(0, 10^2)
+\\ \gamma \sim \mathcal{N}(0, 10^2)
+\\ \delta \sim \mathcal{N}(-0.1, 10^2)
+$$
+- For the $\beta, \gamma$, and $\delta$ as the brief explains, the effect is not currently understood well enough and as such I am assuming vague priors, allowing the data to play a primary role in informing these relationships. For the prior for $\delta$ I am subtly incorporating the expectation that SGAJ levels might be slightly lower in females than in males (as explained by the principal investigator), while still maintaining a high degree of uncertainty.
 
+## rjags
 
-However, it's also crucial to avoid being overly confident in the precision of this prior estimate, given that it's derived from a single study. A conservative approach might be to select a standard deviation that ensures the 95% credible interval of the prior roughly encompasses this range. Since 95% of the mass of a normal distribution falls within approximately 2 standard deviations from the mean, a standard deviation of around 40 μmol/L (i.e., (265-185)/2) for the prior on β0 would ensure the range 185 to 265 μmol/L falls within this interval.
+```{r}
+model <- "model{
+  # Linear regression model
+  for (i in 1:n) {
+    for(t in 1:T) {
+       mu[i,t] = alpha[patient[i]] + beta*(age[i]-56)/10 + gamma*(time[j]-12)/24 + delta*female[i]
+       y[i,t] ~ dnorm(mu[i,t], prec_psi)
+    }
+  }
+  
+  # Random effects
+  for (p in 1:n_patients) {
+    alpha[p] ~ dnorm(mu_patient, prec_patient)
+  }
+  
+  # Priors for fixed effects
+  beta ~ dnorm(0, 1/100)
+  gamma ~ dnorm(0, 1/100)
+  delta ~ dnorm(-0.1, 1/100)
+
+  # Prior for the population average of the random intercepts
+  mu_a ~ dnorm(250, 1/(20.41^2))
+
+  # Prior for the standard deviation of the random intercepts
+  sigma_patient ~ 
+  prec_patient <- 1/(sigma_patient^2)
+
+  # Prior for the measurement error variance
+  sigma ~ dunif(0, 150)
+  tau <- 1/(sigma^2)
+}"
+```
