@@ -108,9 +108,21 @@ $$
 $$
 - For the $\beta, \gamma$, and $\delta$ as the brief explains, the effect is not currently understood well enough and as such I am assuming vague priors, allowing the data to play a primary role in informing these relationships. For the prior for $\delta$ I am subtly incorporating the expectation that SGAJ levels might be slightly lower in females than in males (as explained by the principal investigator), while still maintaining a high degree of uncertainty.
 
+```{r}
+# Number of samples you want to generate
+n <- 1000
+
+# Generate samples from a Half-Normal distribution
+samples <- abs(rnorm(n, mean = 0, sd = 90))
+
+# This samples variable now holds 'n' samples from a Half-Normal(0, 90^2) distribution
+summary(samples)
+```
 ## rjags
 
 ```{r}
+data <- 
+
 model <- "model{
   # Linear regression model
   for (i in 1:n) {
@@ -134,11 +146,13 @@ model <- "model{
   mu_a ~ dnorm(250, 1/(20.41^2))
 
   # Prior for the standard deviation of the random intercepts
-  sigma_patient ~ 
+  sigma_patient ~ dnorm(0, 1/(90^2))T(0, )
   prec_patient <- 1/(sigma_patient^2)
 
   # Prior for the measurement error variance
   sigma ~ dunif(0, 150)
   tau <- 1/(sigma^2)
 }"
+
+
 ```
