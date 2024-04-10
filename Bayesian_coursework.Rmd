@@ -8,6 +8,9 @@ date: "2024-04-08"
 knitr::opts_chunk$set(echo = TRUE)
 library(ggplot2)
 library(dplyr)
+library(rjags)
+library(bayesplot)
+library(posterior)
 ```
 
 ```{r load_df}
@@ -17,17 +20,11 @@ head(sgaj, 7)
 ```
 
 ```{r}
-library("GGally")
-ggpairs(sgaj)
+# library("GGally")
+# ggpairs(sgaj)
 ```
 
 # Part 1
-
-```{r}
-ggplot(sgaj, aes(x=time, y=measured, group=female, color=as.factor(female))) + geom_smooth() + theme_classic()
-
-ggplot(sgaj, aes(x=time, y=measured, group=age_group, color=age_group)) + geom_smooth() + theme_classic()
-```
 
 ```{r}
 summary(sgaj$age)
@@ -39,7 +36,7 @@ sgaj <- sgaj %>%
     age >= 31 & age <= 50 ~ "31-50",
     age >= 51 & age <= 70 ~ "51-70",
     age > 70 ~ "71+"
-))
+  ))
 ```
 
 After reviewing the age distribution in the dataset, I decided to categorise the age variable into four groups: 18-30 (young adults), 31-50 (middle-aged adults), 51-70 (older adults), and 71+ (seniors). This is done solely for visualisation purposes (not used in the model) as it allows for the ordering (and separation in facets) of patients based on their age, making the exploration of how age and gender affect SGAJ easier to interpret.
@@ -76,30 +73,30 @@ The plot shows the trajectory of SGAJ level (across the timepoints) for each pat
 
 #### THE PURPOSE OF THIS QUESTION IS TO BE TRANSPARENT ABOUT THE ASSUMPTIONS.
 #### MAYBE MAKE THEM ALL NAMED BETA? (e.g. beta_age)
-The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{it}$ and variance $\sigma^2$. The expected SGAJ measurement for patient `i` at time `t` is modeled as $\mu_{it}$.
+The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{it}$ and variance $\psi^2$. The expected SGAJ measurement for patient `i` at time `t` is modeled as $\mu_{it}$.
 $$
 \\ \mu_{it} = \alpha_i + \beta\left(age_i - 56 \right)/10 + \gamma\left(time_t - 12 \right)/24 + \delta(female_i)
 \\ y_{it} \sim \mathcal{N}(\mu_{it}, \psi^2)
 $$
-The variability between patients $i$ is represented by a random effect $a_i$ (patient-specific random intercept), which is assumed to be drawn from a Normal distribution with mean $\mu_a$ and variance $\sigma_a^2$. 
+The variability between patients $i$ is represented by a random effect $a_i$ (patient-specific random intercept), which is assumed to be drawn from a Normal distribution with mean $\mu_a$ and variance $\sigma_a^2$. Following the suggestion from the brief, I am fixing the measurement error’s standard deviation ($\psi^2$) to 75.
 
 The model is linear and also makes the simplifying assumption that there is no interaction between the covariates (model is additive). This is the starting model for a full analysis that would have been conducted in a real publication scenario.
 
 The terms involving $\beta, \gamma$, and $\delta$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled such that a unit increase is in 10 years), time (centered around 12 hours and scaled to represent a day), and female (has the value 1 if female and zero otherwise), respectively. 
+
 
 ## Priors:
 $$
 \\ a_{i} \sim \mathcal{N}(\mu_{a}, \sigma_a^2)
 \\ \mu_a \sim \mathcal{N}(250, 20.4^2)
 \\ \sigma_a \sim \text{Half-Normal}(0, 90^2)
-
 $$
 - I am assuming that the random intercept $a_i$ representing the deviation in baseline SGAJ level for each patient from the population average under reference conditions (age 56, female, time 12 hours), follows a Normal distribution. 
+
 - $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors (e.g., age, female, time) are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 250 but it can be as low as 210 and as high as 290. I purposefully made it slightly higher than what the previous study suggested since we are now centering age at 56, instead of 50. The standard deviation of $\mu_a$ is calculated as (290-210)/(1.96*2)=20.4, with a 95% upper and lower credible limit of 290 and 210 respectively.
 
 - for the random effects standard deviation $\sigma_a$, I chose to use a half-normal prior with mean 0 and standard deviation 90. 
 #### EXPAND explanation 
-
 
 $$
 \\ \beta \sim \mathcal{N}(0, 10^2)
@@ -109,32 +106,47 @@ $$
 - For the $\beta, \gamma$, and $\delta$ as the brief explains, the effect is not currently understood well enough and as such I am assuming vague priors, allowing the data to play a primary role in informing these relationships. For the prior for $\delta$ I am subtly incorporating the expectation that SGAJ levels might be slightly lower in females than in males (as explained by the principal investigator), while still maintaining a high degree of uncertainty.
 
 ```{r}
-# Number of samples you want to generate
 n <- 1000
 
 # Generate samples from a Half-Normal distribution
 samples <- abs(rnorm(n, mean = 0, sd = 90))
-
-# This samples variable now holds 'n' samples from a Half-Normal(0, 90^2) distribution
 summary(samples)
 ```
 ## rjags
 
 ```{r}
-data <- 
+sgaj$age_centered <- (sgaj$age - 56)/10 # age in 10 years and centered around 56
+sgaj$time_centered <- (sgaj$time - 12)/24 # time in 24 hours and centered around 12
 
+# Initialisation of data
+data <- list(n_patients = length(unique(sgaj$patient)), 
+             patient = sgaj$patient,
+             age_centered = sgaj$age_centered,
+             time_centered = sgaj$time_centered,
+             female = sgaj$female,
+             n = nrow(sgaj),
+             times = unique(sgaj$time_centered),
+             y = sgaj$measured,
+             sd_psi = 75
+)
+
+data$y
+```
+
+```{r}
 model <- "model{
   # Linear regression model
   for (i in 1:n) {
-    for(t in 1:T) {
-       mu[i,t] = alpha[patient[i]] + beta*(age[i]-56)/10 + gamma*(time[j]-12)/24 + delta*female[i]
+    for(t in 1:times) {
+       mu[i,t] <- alpha[patient[i]] + beta*(age_centered[i])+ gamma*(time_centered[t]) + delta*female[i]
        y[i,t] ~ dnorm(mu[i,t], prec_psi)
+       yrep[i,t] ~ dnorm(mu[i,t], prec_psi) # posterior-predictive distribution
     }
   }
   
   # Random effects
   for (p in 1:n_patients) {
-    alpha[p] ~ dnorm(mu_patient, prec_patient)
+    alpha[p] ~ dnorm(mu_alpha, prec_alpha)
   }
   
   # Priors for fixed effects
@@ -143,16 +155,42 @@ model <- "model{
   delta ~ dnorm(-0.1, 1/100)
 
   # Prior for the population average of the random intercepts
-  mu_a ~ dnorm(250, 1/(20.41^2))
+  mu_alpha ~ dnorm(250, 1/(20.41^2))
 
   # Prior for the standard deviation of the random intercepts
-  sigma_patient ~ dnorm(0, 1/(90^2))T(0, )
-  prec_patient <- 1/(sigma_patient^2)
+  sd_alpha ~ dnorm(0, 1/(90^2))T(0, )
+  prec_alpha <- 1/(sd_alpha^2)
 
-  # Prior for the measurement error variance
-  sigma ~ dunif(0, 150)
-  tau <- 1/(sigma^2)
+  prec_psi <- 1/(sd_psi^2)
 }"
 
+# Initial values function
+init_values <- function() {
+  list(
+    alpha = rnorm(data$n_patients, 250, sqrt(20.41^2)),
+    beta = rnorm(1, 0, 10),
+    gamma = rnorm(1, 0, 10),
+    delta = rnorm(1, -0.1, 10),
+    sd_alpha = abs(rnorm(1, 0, 90))
+  )
+}
 
+
+# Model setup
+jags_model <- jags.model(textConnection(model), 
+                         data = data, 
+                         inits = init_values, 
+                         n.chains = 2, 
+                         n.adapt = 1000)
+
+# Burn-in
+update(jags_model, 1000)
+
+# Sampling
+samples <- coda.samples(jags_model, 
+                        variable.names = c("alpha", "beta", "gamma", "delta", "mu_alpha", "sd_alpha"),
+                        n.iter = 5000)
+
+# Results
+print(summary(samples))
 ```
