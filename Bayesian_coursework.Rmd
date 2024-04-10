@@ -83,7 +83,7 @@ The plot shows the trajectory of SGAJ level (across the timepoints) for each pat
 
 The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{it}$ and variance $\psi^2$. The expected SGAJ measurement for patient `i` at time `t` is modeled as $\mu_{it}$.
 $$
-\\ \mu_{it} = \alpha_i + \beta_{age}\left(age_i - 56 \right)/10 + \gamma_{i}\left(time_t - 12 \right)/24 + \beta_{female}(female_i)
+\\ \mu_{it} = \alpha_i + \beta_{age}\left(age_i - 56 \right)/10 + \beta_{female}(female_i) + \gamma_{i}\left(time_t - 12 \right)/24
 \\ y_{it} \sim \mathcal{N}(\mu_{it}, \psi^2)
 $$
 - The variability between patients $i$ is represented by a random effect $a_i$ (patient-specific random intercept), which is assumed to be drawn from a Normal distribution with mean $\mu_a$ and variance $\sigma_a^2$. Following the suggestion from the brief, I am fixing the measurement error’s standard deviation ($\psi$) to 75.
@@ -92,9 +92,7 @@ $$
 
 - The terms involving $\beta_{age}$, and $\beta_{female}$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled such that a unit increase is in 10 years), and female (has the value 1 if female and zero otherwise), respectively. 
 
-- The $\gamma_{i}$ term represents the coefficient time (centered around 12 hours and scaled to represent a day), 
-
-- $\gamma_{i}$ represents the patient-specific rate of change of SGAJ levels per day, accounting for individual variability in response to the drug SEYAB over time. This is modeled as a random effect to capture the difference in how each patient's SGAJ levels evolve from the baseline measurement at 12 hours after SEYAB administration. Specifically, $\gamma_{i}\left(time_t - 12 \right)/24$ calculates the deviation in SGAJ levels for each patient \(i\) at any given time \(t\), normalized to a 24-hour period to express the rate of change on a per day basis. This term allows us to observe and quantify the individual differences in drug metabolism and response, reflecting the biological variability among patients. I am assuming that \(\gamma_{i}\) is drawn from a Normal distribution with mean $\mu_{\gamma}$ and variance $\sigma_{\gamma}^2$.
+- $\gamma_{i}$ represents the patient-specific rate of change of SGAJ levels per day, accounting for individual variability in response to the drug over time. This is modeled as a random effect to capture the difference in how each patient's SGAJ levels evolve from the baseline measurement at 12 hours after SEYAB administration. Specifically, $\gamma_{i}\left(time_t - 12 \right)/24$ calculates the deviation in SGAJ levels for each patient \(i\) at any given time \(t\), normalized to a 24-hour period to express the rate of change on a per day basis. This term allows us to observe and quantify the individual differences in drug metabolism and response, reflecting the biological variability among patients. I am assuming that \(\gamma_{i}\) is drawn from a Normal distribution with mean $\mu_{\gamma}$ and variance $\sigma_{\gamma}^2$.
 
 ## Priors:
 $$
@@ -218,7 +216,25 @@ summary(basic_draws)
 ```
 
 ```{r}
-for(patient in unique(sgaj$patient)) {
-  print(summary(sgaj[sgaj$patient == patient,]$measureds))
-}
+# Extract posterior samples
+post_samps <- as.matrix(samples)
+
+# Assuming 'gamma' represents the random slopes for all patients, you might need to adjust the name based on your output
+gamma_post_samps <- post_samps[, grepl("gamma", colnames(post_samps))]
+gamma_post_samps
+
+gamma_summary <- apply(gamma_post_samps, 2, summary)
+print(gamma_summary)
+
+gamma_means <- colMeans(gamma_post_samps)
+patient_ids <- 1:length(gamma_means) # Adjust based on your data structure
+plot_data <- data.frame(Patient = patient_ids, GammaMean = gamma_means)
+
+ggplot(plot_data, aes(x = Patient, y = GammaMean)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = GammaMean - 2*sqrt(gamma_summary["Var"]), ymax = GammaMean + 2*sqrt(gamma_summary["Var"])), width = 0.1) +
+  theme_minimal() +
+  labs(title = "Rate of Change of SGAJ for Each Patient", x = "Patient ID", y = "Rate of Change (Gamma)")
+
 ```
+
