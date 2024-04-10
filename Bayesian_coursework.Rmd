@@ -125,7 +125,7 @@ data <- list(n_patients = length(unique(sgaj$patient)),
              time_centered = sgaj$time_centered,
              female = sgaj$female,
              n = nrow(sgaj),
-             times = unique(sgaj$time_centered),
+             # times = unique(sgaj$time_centered),
              y = sgaj$measured,
              sd_psi = 75
 )
@@ -137,11 +137,9 @@ data$y
 model <- "model{
   # Linear regression model
   for (i in 1:n) {
-    for(t in 1:times) {
-       mu[i,t] <- alpha[patient[i]] + beta*(age_centered[i])+ gamma*(time_centered[t]) + delta*female[i]
-       y[i,t] ~ dnorm(mu[i,t], prec_psi)
-       yrep[i,t] ~ dnorm(mu[i,t], prec_psi) # posterior-predictive distribution
-    }
+    mu[i] <- alpha[patient[i]] + beta*(age_centered[i]) + gamma*(time_centered[i]) + delta*female[i]
+    y[i] ~ dnorm(mu[i], prec_psi)
+    yrep[i] ~ dnorm(mu[i], prec_psi) # posterior-predictive distribution
   }
   
   # Random effects
@@ -164,33 +162,48 @@ model <- "model{
   prec_psi <- 1/(sd_psi^2)
 }"
 
-# Initial values function
-init_values <- function() {
-  list(
-    alpha = rnorm(data$n_patients, 250, sqrt(20.41^2)),
-    beta = rnorm(1, 0, 10),
-    gamma = rnorm(1, 0, 10),
-    delta = rnorm(1, -0.1, 10),
-    sd_alpha = abs(rnorm(1, 0, 90))
+# Function to get different initial values - based on random seed.
+init_values_func <- function(seed) {
+  set.seed(seed)
+  
+  return(
+    list(
+      alpha = rnorm(data$n_patients, 250, sqrt(20.41^2)),
+      beta = rnorm(1, 0, 10),
+      gamma = rnorm(1, 0, 10),
+      delta = rnorm(1, -0.1, 10),
+      sd_alpha = abs(rnorm(1, 0, 90))
+    )
   )
 }
 
+# Get two different initial values - to check that the model is converging to the same conclusion
+initial_values <- list(init_values_func(42), init_values_func(20))
 
 # Model setup
 jags_model <- jags.model(textConnection(model), 
                          data = data, 
                          inits = init_values, 
-                         n.chains = 2, 
-                         n.adapt = 1000)
+                         n.chains = 2)
 
 # Burn-in
 update(jags_model, 1000)
 
+pars <- c("alpha", "beta", "gamma", "delta")
+
 # Sampling
 samples <- coda.samples(jags_model, 
-                        variable.names = c("alpha", "beta", "gamma", "delta", "mu_alpha", "sd_alpha"),
-                        n.iter = 5000)
+                        variable.names = pars,
+                        n.iter = 10000)
+mcmc_trace(samples)
+```
+```{r}
+basic_draws <- as_draws(samples)
+summary(basic_draws)
+```
 
-# Results
-print(summary(samples))
+```{r}
+for(patient in unique(sgaj$patient)) {
+  
+}
 ```
