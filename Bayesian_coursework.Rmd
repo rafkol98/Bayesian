@@ -24,6 +24,14 @@ head(sgaj, 7)
 # ggpairs(sgaj)
 ```
 
+```{r}
+n <- 10000
+
+# Generate samples from a Half-Normal distribution
+samples <- rnorm(n, mean = 0, sd = 10^2)
+summary(samples)
+```
+
 # Part 1
 
 ```{r}
@@ -59,29 +67,34 @@ ggplot(sgaj, aes(x = as.factor(time), y = measured, group = patient, color = as.
   )
 ```
 
-The plot shows the trajectory of SGAJ level (across the timepoints) for each patient, facetted by the different age groups. Here are some insights from the plot: - Each patient has a different starting level of SGAJ (time=0).
+The plot shows the trajectory of SGAJ level (across the timepoints) for each patient, facetted by the different age groups. Here are some insights from the plot:
 
--   Positive association between patient age and SGAJ levels, suggesting that older individuals tend to have higher biomarker concentrations. It also appears that the rate at which SGAJ levels change over time (hours) is not constant across all ages; for example, older patients have a faster rate (in general) of measured SGAJ growth than younger patients (comparing individuals in age groups 18-30 vs 51-70, and 71+).
+- Each patient has a different starting level of SGAJ (time=0). 
 
-##### TODO: decide what to do with this comment: This suggests the need for a random slope on age.
+- Positive association between patient age and SGAJ levels, suggesting that older individuals tend to have higher biomarker concentrations. 
 
--   In younger age groups, female patients display higher SGAJ levels than their male counterparts (in most time points). In contrast, in the senior age group (71+ years), this pattern is reversed, with male patients presenting higher SGAJ levels.
+- It  appears that the rate at which SGAJ levels change over time (hours) is not constant across patients; In general, older patients have a faster rate SGAJ growth than younger patients but there is still a lot of variability between patients. This suggests the need for a random slope on time.
 
--   Given the limited samples, these comments are preliminary (not strong conclusions can be drawn).
+- In younger age groups, female patients display higher SGAJ levels than their male counterparts (in most time points). In contrast, in the senior age group (71+ years), this pattern is reversed, with male patients presenting higher SGAJ levels.
+
+- Given the limited samples, these comments are preliminary (not strong conclusions can be drawn).
 
 # Part 2
 
 The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{it}$ and variance $\psi^2$. The expected SGAJ measurement for patient `i` at time `t` is modeled as $\mu_{it}$.
 $$
-\\ \mu_{it} = \alpha_i + \beta_{age}\left(age_i - 56 \right)/10 + \beta_{time}\left(time_t - 12 \right)/24 + \beta_{female}(female_i)
+\\ \mu_{it} = \alpha_i + \beta_{age}\left(age_i - 56 \right)/10 + \gamma_{i}\left(time_t - 12 \right)/24 + \beta_{female}(female_i)
 \\ y_{it} \sim \mathcal{N}(\mu_{it}, \psi^2)
 $$
 - The variability between patients $i$ is represented by a random effect $a_i$ (patient-specific random intercept), which is assumed to be drawn from a Normal distribution with mean $\mu_a$ and variance $\sigma_a^2$. Following the suggestion from the brief, I am fixing the measurement error’s standard deviation ($\psi$) to 75.
 
 - The model is linear and also makes the simplifying assumption that there is no interaction between the covariates (model is additive). This is the starting model for a full analysis that would have been conducted in a real publication scenario.
 
-- The terms involving $\beta_{age}, \beta_{time}$, and $\beta_{female}$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled such that a unit increase is in 10 years), time (centered around 12 hours and scaled to represent a day), and female (has the value 1 if female and zero otherwise), respectively. 
+- The terms involving $\beta_{age}$, and $\beta_{female}$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled such that a unit increase is in 10 years), and female (has the value 1 if female and zero otherwise), respectively. 
 
+- The $\gamma_{i}$ term represents the coefficient time (centered around 12 hours and scaled to represent a day), 
+
+- $\gamma_{i}$ represents the patient-specific rate of change of SGAJ levels per day, accounting for individual variability in response to the drug SEYAB over time. This is modeled as a random effect to capture the difference in how each patient's SGAJ levels evolve from the baseline measurement at 12 hours after SEYAB administration. Specifically, $\gamma_{i}\left(time_t - 12 \right)/24$ calculates the deviation in SGAJ levels for each patient \(i\) at any given time \(t\), normalized to a 24-hour period to express the rate of change on a per day basis. This term allows us to observe and quantify the individual differences in drug metabolism and response, reflecting the biological variability among patients. I am assuming that \(\gamma_{i}\) is drawn from a Normal distribution with mean $\mu_{\gamma}$ and variance $\sigma_{\gamma}^2$.
 
 ## Priors:
 $$
@@ -93,16 +106,24 @@ $$
 
 - $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors (e.g., age, female, time) are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 250 but it can be as low as 210 and as high as 290. I purposefully made it slightly higher than what the previous study suggested since we are now centering age at 56, instead of 50. The standard deviation of $\mu_a$ is calculated as (290-210)/(1.96*2)=20.4, with a 95% upper and lower credible limit of 290 and 210 respectively.
 
-- For the random effects standard deviation $\sigma_a$, I chose to use a half-normal prior with mean 0 and standard deviation 90. 
+- For the random effects standard deviation $\sigma_a$, I chose to use a half-normal prior with mean 0 and standard deviation 90 (value influenced by the information from the brief).
 #### EXPAND explanation 
+
+
+$$
+\\ \gamma_{i} \sim \mathcal{N}(\mu_{\gamma}, \sigma_{\gamma}^2)
+\\ \mu_{\gamma} \sim \mathcal{N}(0, 10^2)
+\\ \sigma_{\gamma} \sim \text{Uniform}(0, 100)
+$$
+#### TODO: might change sigma_{gamma} uniform distribution (consider using half-normal - HalfNormal(0,10^2)).
+- For $mu_{gamma}$ and $sigma_{gamma}$ I chose vague priors as the rate of change per individuals is not well understood 
+#### #TODO: fix this explanation
 
 $$
 \\ \beta_{age} \sim \mathcal{N}(0, 10^2)
-\\ \beta_{time} \sim \mathcal{N}(0, 10^2)
 \\ \beta_{female} \sim \mathcal{N}(-0.1, 10^2)
 $$
-- For the $\beta_{age}, \beta_{time}$, and $\beta_{female}$ as the brief explains, the effect is not currently understood well enough and as such I am assuming vague priors, allowing the data to play a primary role in informing these relationships. 
-- For the prior for $\beta_{female}$ I am subtly incorporating the expectation that SGAJ levels might be slightly lower in females than in males (as explained by the principal investigator).
+- For the $\beta_{age}$ and $\beta_{female}$ as the brief explains, the effect is not currently understood well enough and as such I am assuming vague priors, allowing the data to play a primary role in informing these relationships. However, for the prior for $\beta_{female}$ I am subtly incorporating the expectation that SGAJ levels might be slightly lower in females than in males (as explained by the principal investigator).
 
 
 ## rjags
@@ -123,7 +144,7 @@ data <- list(n_patients = length(unique(sgaj$patient)),
 model <- "model{
   # Linear regression model
   for (i in 1:n) {
-    mu[i] <- alpha[patient[i]] + beta_age*(age[i] - 56)/10 + beta_time*(time[i] - 12)/24 + beta_female*female[i]
+    mu[i] <- alpha[patient[i]] + beta_age*(age[i] - 56)/10 + gamma[patient[i]]*(time[i] - 12)/24 + beta_female*female[i]
     y[i] ~ dnorm(mu[i], prec_psi)
     yrep[i] ~ dnorm(mu[i], prec_psi) # posterior-predictive distribution
   }
@@ -131,6 +152,7 @@ model <- "model{
   # Random effects
   for (p in 1:n_patients) {
     alpha[p] ~ dnorm(mu_alpha, prec_alpha)
+    gamma[p] ~ dnorm(mu_gamma, prec_gamma)
   }
   
   # Priors for fixed effects
@@ -144,6 +166,13 @@ model <- "model{
   # Prior for the standard deviation of the random intercepts
   sd_alpha ~ dnorm(0, 1/(90^2))T(0, )
   prec_alpha <- 1/(sd_alpha^2)
+  
+  # Prior for the population average of the random slope
+  mu_gamma ~ dnorm(0, 1/(10^2))
+  
+  # Prior for the standard deviation of the random slope
+  sd_gamma ~ dunif(0, 100)
+  prec_gamma <- 1/(sd_gamma^2)
 
   prec_psi <- 1/(75^2)
 }"
@@ -151,16 +180,16 @@ model <- "model{
 # Function to get different initial values - based on random seed.
 init_values_func <- function(seed) {
   set.seed(seed)
-  
   return(
     list(
       alpha = rnorm(data$n_patients, 250, sqrt(20.41^2)),
+      sd_alpha = abs(rnorm(1, 0, 90)),
+      mu_gamma = rnorm(1, 0, 10^2),
+      sd_gamma = runif(1, 0, 10^2),
       beta_age = rnorm(1, 0, 10),
-      beta_time = rnorm(1, 0, 10),
-      beta_female = rnorm(1, -0.1, 10),
-      sd_alpha = abs(rnorm(1, 0, 90))
+      beta_female = rnorm(1, -0.1, 10)
+      )
     )
-  )
 }
 
 # Get two different initial values - to check that the model is converging to the same conclusion
@@ -175,7 +204,7 @@ jags_model <- jags.model(textConnection(model),
 # Burn-in
 update(jags_model, 1000)
 
-pars <- c("beta_age", "beta_female")
+pars <- c("beta_age", "beta_female", "gamma")
 
 # Sampling
 samples <- coda.samples(jags_model, 
@@ -183,6 +212,7 @@ samples <- coda.samples(jags_model,
                         n.iter = 10000)
 ```
 ```{r}
+mcmc_trace(samples)
 basic_draws <- as_draws(samples)
 summary(basic_draws)
 ```
