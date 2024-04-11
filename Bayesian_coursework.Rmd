@@ -17,11 +17,12 @@ library(posterior)
 # Load dataset.
 sgaj <- read.csv("sgaj.csv")
 head(sgaj, 7)
+View(sgaj)
 ```
 
 ```{r}
 # library("GGally")
-# ggpairs(sgaj)
+ggpairs(sgaj)
 ```
 
 ```{r}
@@ -92,7 +93,7 @@ $$
 
 - The terms involving $\beta_{age}$, and $\beta_{female}$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled such that a unit increase is in 10 years), and female (has the value 1 if female and zero otherwise), respectively. 
 
-- $\gamma_{i}$ represents the patient-specific rate of change of SGAJ levels per day, accounting for individual variability in response to the drug over time. This is modeled as a random effect to capture the difference in how each patient's SGAJ levels evolve from the baseline measurement at 12 hours after SEYAB administration. Specifically, $\gamma_{i}\left(time_t - 12 \right)/24$ calculates the deviation in SGAJ levels for each patient \(i\) at any given time \(t\), normalized to a 24-hour period to express the rate of change on a per day basis. This term allows us to observe and quantify the individual differences in drug metabolism and response, reflecting the biological variability among patients. I am assuming that \(\gamma_{i}\) is drawn from a Normal distribution with mean $\mu_{\gamma}$ and variance $\sigma_{\gamma}^2$.
+- $\gamma_{i}$ represents the patient-specific rate of change of SGAJ levels per day, accounting for individual variability in response to the drug over time. This is modeled as a random effect to capture the difference in how each patient's SGAJ levels evolve from the baseline measurement at 12 hours after SEYAB administration. Specifically, $\gamma_{i}\left(time_t - 12 \right)/24$ calculates the deviation in SGAJ levels for each patient \(i\) at any given time \(t\), normalized to a 24-hour period to express the rate of change on a per day basis. This allows us to observe and quantify the individual differences in drug metabolism and response, reflecting the biological variability among patients - without it we would just have different starting points of SGAJ levels among patients (random intercept) but the rate of change over time would be constant across individuals. I am assuming that \(\gamma_{i}\) is drawn from a Normal distribution with mean $\mu_{\gamma}$ and variance $\sigma_{\gamma}^2$.
 
 ## Priors:
 $$
@@ -105,8 +106,6 @@ $$
 - $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors (e.g., age, female, time) are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 250 but it can be as low as 210 and as high as 290. I purposefully made it slightly higher than what the previous study suggested since we are now centering age at 56, instead of 50. The standard deviation of $\mu_a$ is calculated as (290-210)/(1.96*2)=20.4, with a 95% upper and lower credible limit of 290 and 210 respectively.
 
 - For the random effects standard deviation $\sigma_a$, I chose to use a half-normal prior with mean 0 and standard deviation 90 (value influenced by the information from the brief).
-#### EXPAND explanation 
-
 
 $$
 \\ \gamma_{i} \sim \mathcal{N}(\mu_{\gamma}, \sigma_{\gamma}^2)
@@ -139,6 +138,8 @@ data <- list(n_patients = length(unique(sgaj$patient)),
 ```
 
 ```{r}
+set.seed(2292) # setting seed for reproducibility
+
 model <- "model{
   # Linear regression model
   for (i in 1:n) {
@@ -192,7 +193,11 @@ init_values_func <- function(seed) {
 
 # Get two different initial values - to check that the model is converging to the same conclusion
 initial_values <- list(init_values_func(42), init_values_func(20))
+print("Two different initial values lists")
+print(initial_values)
+```
 
+```{r}
 # Model setup
 jags_model <- jags.model(textConnection(model), 
                          data = data, 
@@ -209,32 +214,41 @@ samples <- coda.samples(jags_model,
                         variable.names = pars,
                         n.iter = 10000)
 ```
+
 ```{r}
 mcmc_trace(samples)
-basic_draws <- as_draws(samples)
-summary(basic_draws)
 ```
+TODO: Comment about convergence from two different chains
 
 ```{r}
-# Extract posterior samples
-post_samps <- as.matrix(samples)
+library(posterior)
 
-# Assuming 'gamma' represents the random slopes for all patients, you might need to adjust the name based on your output
-gamma_post_samps <- post_samps[, grepl("gamma", colnames(post_samps))]
-gamma_post_samps
+basic_draws <- as_draws(samples)
 
-gamma_summary <- apply(gamma_post_samps, 2, summary)
-print(gamma_summary)
-
-gamma_means <- colMeans(gamma_post_samps)
-patient_ids <- 1:length(gamma_means) # Adjust based on your data structure
-plot_data <- data.frame(Patient = patient_ids, GammaMean = gamma_means)
-
-ggplot(plot_data, aes(x = Patient, y = GammaMean)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = GammaMean - 2*sqrt(gamma_summary["Var"]), ymax = GammaMean + 2*sqrt(gamma_summary["Var"])), width = 0.1) +
-  theme_minimal() +
-  labs(title = "Rate of Change of SGAJ for Each Patient", x = "Patient ID", y = "Rate of Change (Gamma)")
-
+summary_draws <- summary(basic_draws, ~quantile(.x, probs=c(0.025, 0.5, 0.975)), default_convergence_measures(), default_mcse_measures())
+summary_draws
 ```
 
+The median value of the \(\beta_{age}\) coefficient at 13.24 indicates that SGAJ levels typically rise by about 13.24 units for each decade past 56 years, and decrease by the same amount per decade before 56. The 95% credible interval from -5.59 to 30.37, however, reveals uncertainty in this age effect, highlighting that while the trend suggests an increase with age, the actual impact could vary, potentially even decreasing SGAJ levels.
+
+The \(\beta_{female}\) coefficient's median at 1.94 suggests females have SGAJ levels that are typically 1.94 units higher than males (all other things constant), but with a broad 95% credible interval from -17.15 to 21.57, there is considerable uncertainty around this effect. 
+
+
+
+
+```{r}
+
+summary_draws_df <- summary_draws %>% as_data_frame()
+summary_draws_df <- summary_draws_df[grepl("gamma", colnames(post_samps)), c("2.5%", "50%", "97.5%")]
+colnames(summary_draws_df) <- c("lower", "median", "upper")
+summary_draws_df$patient <- as.factor(1:12)
+
+ggplot(summary_draws_df, aes(x=patient, y=median)) +
+  geom_point() +  # Add points for the median values
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=.2) +  # Add error bars for the 95% CI
+  theme_classic() +
+  labs(y = "Rate of Change (Median)", x = "Patient", title = "Rate of Change in SGAJ Levels Across Patients") +
+  theme(axis.text.x = element_text(hjust = 1))  # Improve x-axis label readability
+
+```
+Gammas give the rate of change per patient for every 24 hours after the 12-hour mark.
