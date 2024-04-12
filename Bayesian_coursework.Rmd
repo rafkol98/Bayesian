@@ -2,6 +2,8 @@
 title: "Bayesian Coursework"
 output: pdf_document
 date: "2024-04-08"
+editor_options: 
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -21,7 +23,7 @@ head(sgaj, 7)
 
 ```{r}
 # library("GGally")
-ggpairs(sgaj)
+# ggpairs(sgaj)
 ```
 
 ```{r}
@@ -287,23 +289,36 @@ samples_miss <- coda.samples(jags_model_miss,
 samples_miss_draws <- as_draws(samples_miss)
 
 
-samples_miss_mu_pp <- summary(
-  subset_draws(samples_miss_draws, c(paste0("mu[",data_miss$n,"]"),
-                            paste0("yrep[",data_miss$n,"]"))),
-  ~quantile(.x, probs = c(0.025,0.5,0.975))
-)
-samples_miss_mu_pp
-
 y.pred <- extract_variable(samples_miss_draws,  paste0("yrep[",data_miss$n,"]"))
 mean(y.pred >= 500)
 ```
 
 ```{r}
-samples_miss_mu_pp[2,]
 
-predicted_value <- samples_miss_mu_pp[[1,"50%"]]
-sgaj_with_predicted <- sgaj_miss[sgaj_miss$patient == 12,]
-sgaj_with_predicted[6,]$measured <- predicted_value
+# get ids of patient 12 - to use to get yrep.
+ids_patient_12 <- rownames(sgaj_miss[sgaj_miss$patient == 12,])
 
-ggplot(sgaj_with_predicted, aes(x=time, y=measured)) + geom_point() + theme_classic()
+# Get dataframe with observations only for patient 12
+sgaj_miss_patient_12 <- sgaj_miss[sgaj_miss$patient == 12,] %>% mutate(index = 1:6)
+
+samples_miss_mu_pp <- summary(
+  subset_draws(samples_miss_draws, c(paste0("mu[",ids_patient_12,"]"),
+                            paste0("yrep[",ids_patient_12,"]"))),
+  ~quantile(.x, probs = c(0.025,0.5,0.975))
+) %>% mutate(index = rep(1:nrow(sgaj_miss_patient_12),2))
+
+
+combined_df_patient_12 <- samples_miss_mu_pp %>% left_join(sgaj_miss_patient_12, by="index")  %>%
+  mutate(
+    Point = if_else(is.na(measured), "Predicted", "Observed"),
+    measured = if_else(is.na(measured), `50%`, measured)
+  )
+
+combined_df_patient_12
+```
+
+
+```{r}
+
+ggplot(combined_df_patient_12, aes(x=time, y=measured)) + geom_point() + theme_classic()
 ```
