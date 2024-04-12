@@ -212,7 +212,7 @@ jags_model <- jags.model(textConnection(model),
 # Burn-in
 update(jags_model, 1000)
 
-pars <- c("beta_age", "beta_female", "gamma")
+pars <- c("beta_age", "beta_female", "gamma", "yrep")
 
 # Sampling
 samples <- coda.samples(jags_model, 
@@ -272,6 +272,7 @@ data_miss <- list(n_patients = length(unique(sgaj_miss$patient)),
 ```
 
 ```{r}
+set.seed(2292) 
 jags_model_miss <- jags.model(textConnection(model), 
                          data = data_miss, 
                          inits = initial_values, 
@@ -294,21 +295,33 @@ mean(y.pred >= 500)
 ```
 
 ```{r}
-
 # get ids of patient 12 - to use to get yrep.
-ids_patient_12 <- rownames(sgaj_miss[sgaj_miss$patient == 12,])
+ids_patient_12 <- rownames(sgaj_miss[sgaj_miss$patient == 12, ])
 
 # Get dataframe with observations only for patient 12
-sgaj_miss_patient_12 <- sgaj_miss[sgaj_miss$patient == 12,] %>% mutate(index = 1:6)
+sgaj_miss_patient_12 <- sgaj_miss[sgaj_miss$patient == 12, ] %>% 
+  mutate(index = 1:6)
 
-samples_miss_mu_pp <- summary(
-  subset_draws(samples_miss_draws, c(paste0("mu[",ids_patient_12,"]"),
-                            paste0("yrep[",ids_patient_12,"]"))),
-  ~quantile(.x, probs = c(0.025,0.5,0.975))
-) %>% mutate(index = rep(1:nrow(sgaj_miss_patient_12),2))
+samples_miss_mu_pp <- summary(subset_draws(samples_miss_draws, c(
+    paste0("mu[", ids_patient_12, "]"),
+    paste0("yrep[", ids_patient_12, "]")
+  )), ~ quantile(.x, probs = c(0.025, 0.5, 0.975))) %>% mutate(
+    index = rep(1:nrow(sgaj_miss_patient_12), 2),
+    Uncertainty = if_else(
+      str_detect(variable, "mu"),
+      "Fitted mean",
+      "Posterior-predictive"
+    )
+)
+
+samples_miss_mu_pp
+```
 
 
-combined_df_patient_12 <- samples_miss_mu_pp %>% left_join(sgaj_miss_patient_12, by="index")  %>%
+```{r}
+# Comvine datasets
+combined_df_patient_12 <-
+  samples_miss_mu_pp %>% left_join(sgaj_miss_patient_12, by = "index")  %>%
   mutate(
     Point = if_else(is.na(measured), "Predicted", "Observed"),
     measured = if_else(is.na(measured), `50%`, measured)
@@ -320,5 +333,30 @@ combined_df_patient_12
 
 ```{r}
 
-ggplot(combined_df_patient_12, aes(x=time, y=measured)) + geom_point() + theme_classic()
+ggplot(combined_df_patient_12, aes(x=time, y=measured)) + geom_ribbon(aes(ymin=`2.5%`,ymax=`97.5%`,fill=Uncertainty), alpha = 0.15) + geom_point(aes(col = Point))+ theme_classic()
+```
+
+# Part 4
+Conduct a posterior predictive check for the measurement at 18 hours after SEYAB administration for patient id = 3.
+#TODO::: getting from the original model (not the one with missing) - think if this is fine
+```{r}
+# get posterior predictive distribution for patient with id=3. From the original model (not the one with missing)
+index_patient_3_time_18 <- rownames(sgaj[sgaj$patient == 3 & sgaj$time==18,])
+
+yrep_patient_3_time_18 <- extract_variable(basic_draws, paste0("yrep[",index_patient_3_time_18,"]")) %>% as_tibble()
+summary(yrep_patient_3_time_18)
+
+obs_patient_3_time_18 <- as.numeric(sgaj[index_patient_3_time_18,]$measured)
+obs_patient_3_time_18
+mean(yrep_patient_3_time_18$value < obs_patient_3_time_18)
+     
+# TODO: fix labels add measurement units!!!
+# p-value not shown
+yrep_patient_3_time_18 %>%
+  ggplot() +
+  aes(x = value) +
+  geom_density() +
+  geom_vline(aes(xintercept = obs_patient_3_time_18),color="blue", linetype="dashed", linewidth=1) +
+  labs(x = "Measured SGAJ", y = "Posterior-predictive density", annotate(geom="text", x=0.5, y=2, label=paste0("p = ", mean(yrep_patient_3_time_18$value < obs_patient_3_time_18)), color="blue")) +
+theme_classic()
 ```
