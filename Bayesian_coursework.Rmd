@@ -100,13 +100,25 @@ $$
 $$
 \\ a_{i} \sim \mathcal{N}(\mu_{a}, \sigma_a^2)
 \\ \mu_a \sim \mathcal{N}(225, 20.41^2)
-\\ \sigma_a \sim \text{Half-Normal}(0, 90^2)
+\\ \sigma_a \sim \mathcal{N}(90, 5.1^2)
 $$
 - I am assuming that the random intercept $a_i$ representing the deviation in baseline SGAJ level for each patient from the population average under reference conditions (age 56, female, time 12 hours), follows a Normal distribution. 
 
 - $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors (e.g., age, female, time) are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 225. The standard deviation of $\mu_a$ is calculated as (265-185)/(1.96*2)=20.41, with a 95% upper and lower credible limit of 265 and 185 respectively.
+# TODO: fix precise wording
+- For the random effects standard deviation $\sigma_a$, I am assuming that it follows a Normal distribution with mean 90 (value influenced by the information from the brief), with a standard deviation of (100-80)/(1.96*2)=5.1 to reflect that the value could be as low as 80 and as high as 100 (95% CI).
 
-- For the random effects standard deviation $\sigma_a$, I chose to use a half-normal prior with mean 0 and standard deviation 90 (value influenced by the information from the brief). 
+```{r}
+set.seed(2292)  # Set seed for reproducibility
+sigma_a_samples <- abs(rnorm(10000, mean=0, sd=90))
+summary(sigma_a_samples)
+
+# when normal with mean 90 but could be as low as 85 and as high as 95.
+sd_sigma_a_norm <-(100-80)/(1.96*2)
+sd_sigma_a_norm
+sigma_a_norm_samples <- abs(rnorm(10000, mean=90, sd=sd_sigma_a_norm))
+summary(sigma_a_norm_samples)
+```
 # TODO: why?
 
 $$
@@ -164,7 +176,7 @@ model <- "model{
   mu_alpha ~ dnorm(225, 1/(20.41^2))
 
   # Prior for the standard deviation of the random intercepts
-  sd_alpha ~ dnorm(0, 1/(90^2))T(0, )
+  sd_alpha ~ dnorm(90, 1/(5.1^2))
   prec_alpha <- 1/(sd_alpha^2)
   
   # Prior for the population average of the random slope
@@ -185,10 +197,10 @@ init_values_func <- function(seed) {
   set.seed(seed)
   return(
     list(
-      alpha = rnorm(data$n_patients, 250, sqrt(20.41^2)),
-      sd_alpha = abs(rnorm(1, 0, 90)),
-      mu_gamma = rnorm(1, 0, 10^2),
-      sd_gamma = runif(1, 0, 10^2),
+      alpha = rnorm(data$n_patients, 225, 20.41),
+      sd_alpha = abs(rnorm(1, 90, 5.1)),
+      mu_gamma = rnorm(1, 0, 10),
+      sd_gamma = runif(1, 0, 10),
       beta_age = rnorm(1, 0, 10),
       beta_female = rnorm(1, -0.1, 10),
       .RNG.name = c("base::Mersenne-Twister"),
@@ -196,6 +208,8 @@ init_values_func <- function(seed) {
       )
     )
 }
+
+?rnorm
 
 # Get two different initial values - to check that the model is converging to the same conclusion
 initial_values <- list(init_values_func(42), init_values_func(20))
@@ -214,7 +228,7 @@ jags_model <- jags.model(textConnection(model),
 # Burn-in
 update(jags_model, 1000)
 
-pars <- c("alpha", "beta_age", "beta_female", "gamma", "yrep")
+pars <- c("alpha", "mu_alpha", "sd_alpha", "beta_age", "beta_female", "gamma", "mu_gamma", "sd_gamma", "yrep")
 
 # Sampling
 set.seed(2292) 
@@ -236,6 +250,7 @@ get_posterior_summary <- function(draws, pars) {
 sgaj_draws <- as_draws(samples)
 ```
 
+
 ```{r}
 # Check convergence for beta_age and beta_female.
 mcmc_trace(samples, pars=c("beta_age", "beta_female"))
@@ -249,8 +264,8 @@ print(get_posterior_summary(sgaj_draws, c("beta_age", "beta_female")))
 
 ```{r}
 # Check convergence for random intercept (alpha).
-mcmc_trace(samples, pars=c(paste0("alpha[", 1:length(unique(sgaj$patient)),"]")))
-get_posterior_summary(sgaj_draws, c(paste0("alpha[", 1:length(unique(sgaj$patient)),"]")))
+mcmc_trace(samples, pars=c("mu_alpha", "sd_alpha"))
+get_posterior_summary(sgaj_draws, c("mu_alpha", "sd_alpha"))
 ```
 
 Convergence:
@@ -259,8 +274,8 @@ Interpretation:
 
 ```{r}
 # Check convergence for random slope (gamma).
-mcmc_trace(samples, pars=c(paste0("gamma[", 1:length(unique(sgaj$patient)),"]")))
-get_posterior_summary(sgaj_draws, c(paste0("gamma[", 1:length(unique(sgaj$patient)),"]")))
+mcmc_trace(samples, pars=c("mu_gamma", "sd_gamma"))
+get_posterior_summary(sgaj_draws, c("mu_gamma", "sd_gamma"))
 ```
 
 Convergence:
