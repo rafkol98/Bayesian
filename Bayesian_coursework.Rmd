@@ -8,7 +8,7 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(ggplot2)
+library(tidyverse)
 library(dplyr)
 library(rjags)
 library(bayesplot)
@@ -85,28 +85,29 @@ The plot shows the trajectory of SGAJ level (across the timepoints) for each pat
 
 The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{it}$ and variance $\psi^2$. The expected SGAJ measurement for patient `i` at time `t` is modeled as $\mu_{it}$.
 $$
-\\ \mu_{it} = \alpha_i + \beta_{age}\left(age_i - 56 \right)/10 + \beta_{female}(female_i) + \gamma_{i}\left(time_t - 12 \right)/24
+\\ \mu_{it} = \alpha_i + \beta_{age}\left(age_i - 50 \right)/10 + \beta_{female}(female_i) + \gamma_{i}\left(time_t - 12 \right)/24
 \\ y_{it} \sim \mathcal{N}(\mu_{it}, \psi^2)
 $$
 - The variability between patients $i$ is represented by a random effect $a_i$ (patient-specific random intercept), which is assumed to be drawn from a Normal distribution with mean $\mu_a$ and variance $\sigma_a^2$. Following the suggestion from the brief, I am fixing the measurement error’s standard deviation ($\psi$) to 75.
 
 - The model is linear and also makes the simplifying assumption that there is no interaction between the covariates (model is additive). This is the starting model for a full analysis that would have been conducted in a real publication scenario.
 
-- The terms involving $\beta_{age}$, and $\beta_{female}$ correspond to the fixed effects of age (centered around the mean age of 56 years and scaled such that a unit increase is in 10 years), and female (has the value 1 if female and zero otherwise), respectively. 
+- The terms involving $\beta_{age}$, and $\beta_{female}$ correspond to the fixed effects of age (centered around the age of 50 and scaled such that a unit increase is in 10 years), and female (has the value 1 if female and zero otherwise), respectively. 
 
 - $\gamma_{i}$ represents the patient-specific rate of change of SGAJ levels per day, accounting for individual variability in response to the drug over time. This is modeled as a random effect to capture the difference in how each patient's SGAJ levels evolve from the baseline measurement at 12 hours after SEYAB administration. Specifically, $\gamma_{i}\left(time_t - 12 \right)/24$ calculates the deviation in SGAJ levels for each patient \(i\) at any given time \(t\), normalized to a 24-hour period to express the rate of change on a per day basis. This allows us to observe and quantify the individual differences in drug metabolism and response, reflecting the biological variability among patients - without it we would just have different starting points of SGAJ levels among patients (random intercept) but the rate of change over time would be constant across individuals. I am assuming that \(\gamma_{i}\) is drawn from a Normal distribution with mean $\mu_{\gamma}$ and variance $\sigma_{\gamma}^2$.
 
 ## Priors:
 $$
 \\ a_{i} \sim \mathcal{N}(\mu_{a}, \sigma_a^2)
-\\ \mu_a \sim \mathcal{N}(250, 20.4^2)
+\\ \mu_a \sim \mathcal{N}(225, 20.41^2)
 \\ \sigma_a \sim \text{Half-Normal}(0, 90^2)
 $$
 - I am assuming that the random intercept $a_i$ representing the deviation in baseline SGAJ level for each patient from the population average under reference conditions (age 56, female, time 12 hours), follows a Normal distribution. 
 
-- $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors (e.g., age, female, time) are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 250 but it can be as low as 210 and as high as 290. I purposefully made it slightly higher than what the previous study suggested since we are now centering age at 56, instead of 50. The standard deviation of $\mu_a$ is calculated as (290-210)/(1.96*2)=20.4, with a 95% upper and lower credible limit of 290 and 210 respectively.
+- $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors (e.g., age, female, time) are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 225. The standard deviation of $\mu_a$ is calculated as (265-185)/(1.96*2)=20.41, with a 95% upper and lower credible limit of 265 and 185 respectively.
 
-- For the random effects standard deviation $\sigma_a$, I chose to use a half-normal prior with mean 0 and standard deviation 90 (value influenced by the information from the brief).
+- For the random effects standard deviation $\sigma_a$, I chose to use a half-normal prior with mean 0 and standard deviation 90 (value influenced by the information from the brief). 
+# TODO: why?
 
 $$
 \\ \gamma_{i} \sim \mathcal{N}(\mu_{\gamma}, \sigma_{\gamma}^2)
@@ -140,12 +141,11 @@ data <- list(n_patients = length(unique(sgaj$patient)),
 ```
 
 ```{r}
-set.seed(2292) # setting seed for reproducibility
-
+# Model definition
 model <- "model{
   # Linear regression model
   for (i in 1:n) {
-    mu[i] <- alpha[patient[i]] + beta_age*(age[i] - 56)/10 + gamma[patient[i]]*(time[i] - 12)/24 + beta_female*female[i]
+    mu[i] <- alpha[patient[i]] + beta_age*(age[i] - 50)/10 + gamma[patient[i]]*(time[i] - 12)/24 + beta_female*female[i]
     y[i] ~ dnorm(mu[i], prec_psi)
     yrep[i] ~ dnorm(mu[i], prec_psi) # posterior-predictive distribution
   }
@@ -157,12 +157,11 @@ model <- "model{
   }
   
   # Priors for fixed effects
-  beta_age ~ dnorm(0, 1/100)
-  beta_time ~ dnorm(0, 1/100)
-  beta_female ~ dnorm(-0.1, 1/100)
+  beta_age ~ dnorm(0, 1/(10^2))
+  beta_female ~ dnorm(-0.1, 1/(10^2))
 
   # Prior for the population average of the random intercepts
-  mu_alpha ~ dnorm(250, 1/(20.41^2))
+  mu_alpha ~ dnorm(225, 1/(20.41^2))
 
   # Prior for the standard deviation of the random intercepts
   sd_alpha ~ dnorm(0, 1/(90^2))T(0, )
@@ -191,13 +190,16 @@ init_values_func <- function(seed) {
       mu_gamma = rnorm(1, 0, 10^2),
       sd_gamma = runif(1, 0, 10^2),
       beta_age = rnorm(1, 0, 10),
-      beta_female = rnorm(1, -0.1, 10)
+      beta_female = rnorm(1, -0.1, 10),
+      .RNG.name = c("base::Mersenne-Twister"),
+      .RNG.seed = c(seed)
       )
     )
 }
 
 # Get two different initial values - to check that the model is converging to the same conclusion
 initial_values <- list(init_values_func(42), init_values_func(20))
+
 print("Two different initial values lists")
 print(initial_values)
 ```
@@ -212,35 +214,64 @@ jags_model <- jags.model(textConnection(model),
 # Burn-in
 update(jags_model, 1000)
 
-pars <- c("beta_age", "beta_female", "gamma", "yrep")
+pars <- c("alpha", "beta_age", "beta_female", "gamma", "yrep")
 
 # Sampling
+set.seed(2292) 
 samples <- coda.samples(jags_model, 
                         variable.names = pars,
-                        n.iter = 10000)
+                        n.iter = 40000)
+```
+```{r}
+# Function that returns posterior summary for only specified parameters. 
+# The summmary includes the 2.5%, 50%, 97.5% quantiles, convergence measures (rhat, ESS), and monte carlo standard error 
+get_posterior_summary <- function(draws, pars) {
+  subsetted_draws <- subset_draws(draws, variable = pars)
+
+  summary_subsetted_draws <- summary(subsetted_draws, ~quantile(.x, probs = c(0.025, 0.5, 0.975)), default_convergence_measures(), default_mcse_measures())
+  return(summary_subsetted_draws)
+}
+
+# get draws
+sgaj_draws <- as_draws(samples)
 ```
 
 ```{r}
-mcmc_trace(samples)
+# Check convergence for beta_age and beta_female.
+mcmc_trace(samples, pars=c("beta_age", "beta_female"))
+print(get_posterior_summary(sgaj_draws, c("beta_age", "beta_female")))
 ```
-TODO: Comment about convergence from two different chains
+*Convergence:* The traceplots appear to show a “fat hairy caterpillar”, with a stable mean with random dispersion around the mean. Both chains overlap. The rhat statistic is estimated to be 1.00 (within-chain and between-chain variances are similar), giving no suggestion of any lack of convergence.
+
+*ESS and MCSE:* The ESS for \(\beta_{age}\) is lower (3482) compared to \(\beta_{female}\)  (21265), which suggests that the posterior distribution of \(\beta_{age}\) is estimated with less precision. The MCSE values for beta_age are higher compared to beta_female, indicating more uncertainty in the estimates of the central tendency for beta_age. 
+
+*Interpretation:* The median value of the \(\beta_{age}\) coefficient at 12.75 indicates that SGAJ levels typically rise by about 12.75 units for each decade past 56 years, and decrease by the same amount per decade before 56. The 95% credible interval from -5.45 to 12.75, however, reveals uncertainty in this age effect, highlighting that while the trend suggests an increase with age, the actual impact could vary, potentially even decreasing SGAJ levels. The \(\beta_{female}\) coefficient's median at 1.94 suggests females have SGAJ levels that are typically 1.94 units higher than males (all other things constant), but with a broad 95% credible interval from -17.15 to 21.57, there is considerable uncertainty around this effect. 
 
 ```{r}
-library(posterior)
-
-basic_draws <- as_draws(samples)
-
-summary_draws <- summary(basic_draws, ~quantile(.x, probs=c(0.025, 0.5, 0.975)), default_convergence_measures(), default_mcse_measures())
-summary_draws
+# Check convergence for random intercept (alpha).
+mcmc_trace(samples, pars=c(paste0("alpha[", 1:length(unique(sgaj$patient)),"]")))
+get_posterior_summary(sgaj_draws, c(paste0("alpha[", 1:length(unique(sgaj$patient)),"]")))
 ```
 
-The median value of the \(\beta_{age}\) coefficient at 13.24 indicates that SGAJ levels typically rise by about 13.24 units for each decade past 56 years, and decrease by the same amount per decade before 56. The 95% credible interval from -5.59 to 30.37, however, reveals uncertainty in this age effect, highlighting that while the trend suggests an increase with age, the actual impact could vary, potentially even decreasing SGAJ levels.
+Convergence:
 
-The \(\beta_{female}\) coefficient's median at 1.94 suggests females have SGAJ levels that are typically 1.94 units higher than males (all other things constant), but with a broad 95% credible interval from -17.15 to 21.57, there is considerable uncertainty around this effect. 
+Interpretation:
+
+```{r}
+# Check convergence for random slope (gamma).
+mcmc_trace(samples, pars=c(paste0("gamma[", 1:length(unique(sgaj$patient)),"]")))
+get_posterior_summary(sgaj_draws, c(paste0("gamma[", 1:length(unique(sgaj$patient)),"]")))
+```
+
+Convergence:
+
+Interpretation:
+
+
 
 
 ```{r}
-summary_draws_df <- summary_draws %>% as_data_frame()
+summary_draws_df <- summary_draws %>% as.data.frame()
 summary_draws_df <- summary_draws_df[grepl("gamma", summary_draws$variable), c("2.5%", "50%", "97.5%")]
 colnames(summary_draws_df) <- c("lower", "median", "upper")
 summary_draws_df$patient <- as.factor(1:12)
@@ -254,6 +285,9 @@ ggplot(summary_draws_df, aes(x=patient, y=median)) +
 
 ```
 Gammas give the rate of change per patient for every 24 hours after the 12-hour mark.
+
+
+TODO: enumerate all limitations of the model.
 
 # Part 3
 ```{r}
