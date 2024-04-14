@@ -37,8 +37,18 @@ summary(samples)
 # Part 1
 
 ```{r}
-ggplot(sgaj, aes(x=measured)) + geom_density() + theme_classic()
-ggplot(sgaj, aes(x=log(measured))) + geom_density() + theme_classic()
+library(ggplot2)
+
+for (patient in 1:12) {
+  sgaj_patient <- sgaj[sgaj$patient==patient,]
+  print(sgaj_patient)
+  print(ggplot(sgaj_patient, aes(x=measured)) + 
+    geom_density() +  
+    facet_wrap(~time, scales = "free") +  
+    theme_classic())
+}
+
+
 ```
 
 ```{r}
@@ -92,7 +102,7 @@ The plot shows the trajectory of SGAJ level (across the timepoints) for each pat
 # Part 2
 #TODO: assumptions of hierarchical models
 
-The rate of change per day of SGAJ for patients is assumed to follow a normal distribution with mean $\mu_{it}$ and variance $\psi^2$. The expected SGAJ measurement for patient `i` at time `t` is modeled as $\mu_{it}$.
+The rate of change per day of SGAJ for each patient is assumed to follow a normal distribution with mean $\mu_{it}$ and variance $\psi^2$. The expected SGAJ measurement for patient `i` at time `t` is modeled as $\mu_{it}$.
 $$
 \\ \mu_{it} = \alpha_i + \beta_{\text{age}}\left(\text{age}_i - 50 \right)/10 + \beta_{\text{female}}(\text{female}_i) + \gamma_{i}\left(\text{time}_t - 12 \right)/24
 \\ y_{it} \sim \mathcal{N}(\mu_{it}, \psi^2)
@@ -118,30 +128,6 @@ $$
 
 - $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors (e.g., age, female, time) are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 225. The standard deviation of $\mu_a$ is calculated as (265-185)/(1.96*2)=20.41, with a 95% upper and lower credible limit of 265 and 185 respectively.
 
-```{r}
-# for mu_a
-log(20.41)
-log(225)
-(log(265) - log(185))/(1.96*2)
-
-
-
-# Original scale parameters
-mu <- 225
-sigma <- 20.41
-
-# Convert mean to the log scale
-log_mu <- log(mu)
-
-# Approximate standard deviation on the log scale
-log_sigma <- sigma / mu
-
-# Print results
-cat("Log-scale mean:", log_mu, "\n")
-cat("Log-scale standard deviation:", log_sigma, "\n")
-
-```
-
 # TODO: why you didn't do the same above?
 - For the random effects standard deviation $\sigma_a$, I am setting it as a uniform distribution between 80 and 100 to account for some uncertainty around the value 90 suggested from the previous study (because they said it is roughly 90).
 
@@ -154,6 +140,9 @@ $$
 
 
 #### #TODO: fix this explanation
+
+
+
 
 $$
 \\ \beta_{\text{age}} \sim \mathcal{N}(0, 10^2)
@@ -207,19 +196,16 @@ model <- "model{
   mu_gamma ~ dnorm(0, 1/(10^2))
   
   # Prior for the standard deviation of the random slope
-  sd_gamma ~ dunif(0, 300)
+  sd_gamma ~ dunif(0, 100)
   prec_gamma <- 1/(sd_gamma^2)
 
   prec_psi <- 1/(75^2)
 }"
 
-# TODO: add VPC
 
 # Two different initial values - to check that the model is converging to the same conclusion
 initial_values <- list(list(alpha=rep(200, data$n_patients), sd_alpha=80, mu_gamma=0, sd_gamma=20, beta_age=0, beta_female=0, .RNG.name = c("base::Mersenne-Twister"), .RNG.seed = 20), list(alpha=rep(100, data$n_patients), sd_alpha=95, mu_gamma=1, sd_gamma=50, beta_age=1, beta_female=1, .RNG.name = c("base::Mersenne-Twister"), .RNG.seed = 42))
-```
 
-```{r}
 # Model setup
 jags_model <- jags.model(textConnection(model), 
                          data = data, 
@@ -235,7 +221,12 @@ pars <- c("alpha", "mu_alpha", "sd_alpha", "beta_age", "beta_female", "gamma", "
 set.seed(2292) 
 samples <- coda.samples(jags_model, 
                         variable.names = pars,
-                        n.iter = 40000)
+                        n.iter = 200000,
+                        thin=10)
+
+
+# Get draws
+sgaj_draws <- as_draws(samples)
 ```
 ```{r}
 # Function that returns posterior summary for only specified parameters. 
@@ -246,9 +237,6 @@ get_posterior_summary <- function(draws, pars) {
   
   return(summary_subsetted_draws)
 }
-
-# get draws
-sgaj_draws <- as_draws(samples)
 ```
 
 
@@ -269,16 +257,14 @@ mcmc_trace(samples, pars=c("mu_alpha", "sd_alpha"))
 get_posterior_summary(sgaj_draws, c("mu_alpha", "sd_alpha"))
 ```
 
-Convergence:
+*Convergence:*
 
-Interpretation:
+*Interpretation:*
 
 ```{r}
 # Check convergence for random slope (gamma).
 mcmc_trace(samples, pars=c("mu_gamma", "sd_gamma"))
 get_posterior_summary(sgaj_draws, c("mu_gamma", "sd_gamma"))
-
-
 ```
 
 Convergence:
