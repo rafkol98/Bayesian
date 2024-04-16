@@ -39,15 +39,22 @@ sgaj_with_age_groups <- sgaj %>%
 After reviewing the age distribution in the dataset, I decided to categorise the age variable into four groups: 18-30 (young adults), 31-50 (middle-aged adults), 51-70 (older adults), and 71+ (seniors). This is done solely for visualisation purposes (not used in the model) as it allows for the ordering (and separation in facets) of patients based on their age, making the exploration of how age and gender affect SGAJ easier to interpret.
 
 ```{r}
-ggplot(sgaj_with_age_groups, aes(x = as.factor(time), y = measured, group = patient, color = as.factor(female))) + 
+ggplot(
+  sgaj_with_age_groups,
+  aes(
+    x = as.factor(time),
+    y = measured,
+    group = patient,
+    color = as.factor(female)
+  )) +
   geom_point(size = 3) +
   geom_line(linewidth = 1.3) + 
   facet_wrap(~age_group, ncol = 4) +
   theme_classic() +
   theme(
-    axis.text.x = element_text(size = 10),  # Bigger x-axis text
-    axis.text.y = element_text(size = 10),  # Bigger y-axis text
-    axis.ticks = element_line(size = 1)     # Thicker axis ticks
+    axis.text.x = element_text(size = 10),  
+    axis.text.y = element_text(size = 10), 
+    axis.ticks = element_line(size = 1)
   ) +
   labs(
     title = "Trajectory of SGAJ levels by Patient - Faceted by Age Group",
@@ -151,18 +158,18 @@ Constructing a hierarchical linear regression model based on the assumptions and
 model <- "model{
   # Linear regression model
   for (i in 1:n) {
-    mu[i] <- alpha[patient[i]] + beta_age*(age[i] - 50)/10 + beta_female*(1-female[i]) + gamma[patient[i]]*(time[i] - 12)/6 
+    mu[i] <- alpha[patient[i]] + beta_age*(age[i] - 50)/10 + beta_female*(1-female[i]) + gamma[patient[i]]*(time[i] - 12)/6
     y[i] ~ dnorm(mu[i], prec_psi)
     yrep[i] ~ dnorm(mu[i], prec_psi) # posterior-predictive distribution
   }
-  
+
   # Random effects
   for (p in 1:n_patients) {
     alpha[p] ~ dnorm(mu_alpha, prec_alpha)
     gamma[p] ~ dnorm(mu_gamma, prec_gamma)
-    rate_of_change[p] <- gamma[p] * 4 
+    rate_of_change[p] <- gamma[p] * 4
   }
-  
+
   # Priors for fixed effects
   beta_age ~ dnorm(0, 1/(10^2))
   beta_female ~ dnorm(0.1, 1/(10^2))
@@ -173,10 +180,10 @@ model <- "model{
   # Prior for the standard deviation of the random intercepts
   sd_alpha ~  dunif(80,100)
   prec_alpha <- 1/(sd_alpha^2)
-  
+
   # Prior for the population average of the random slope
   mu_gamma ~ dnorm(0, 1/(10^2))
-  
+
   # Prior for the standard deviation of the random slope
   sd_gamma ~ dunif(0, 100)
   prec_gamma <- 1/(sd_gamma^2)
@@ -186,7 +193,29 @@ model <- "model{
 
 
 # Two different initial values - to check that the model is converging to the same conclusion
-initial_values <- list(list(alpha=rep(200, data$n_patients), sd_alpha=80, mu_gamma=0, sd_gamma=20, beta_age=0, beta_female=0, .RNG.name = c("base::Mersenne-Twister"), .RNG.seed = 20), list(alpha=rep(100, data$n_patients), sd_alpha=95, mu_gamma=1, sd_gamma=50, beta_age=1, beta_female=1, .RNG.name = c("base::Mersenne-Twister"), .RNG.seed = 42))
+initial_values <-
+  list(
+    list(
+      alpha = rep(200, data$n_patients),
+      sd_alpha = 80,
+      mu_gamma = 0,
+      sd_gamma = 20,
+      beta_age = 0,
+      beta_female = 0,
+      .RNG.name = c("base::Mersenne-Twister"),
+      .RNG.seed = 20
+    ),
+    list(
+      alpha = rep(100, data$n_patients),
+      sd_alpha = 95,
+      mu_gamma = 1,
+      sd_gamma = 50,
+      beta_age = 1,
+      beta_female = 1,
+      .RNG.name = c("base::Mersenne-Twister"),
+      .RNG.seed = 42
+    )
+  )
 
 # Model setup
 jags_model <- jags.model(textConnection(model), 
@@ -197,7 +226,18 @@ jags_model <- jags.model(textConnection(model),
 # Burn-in
 update(jags_model, 1000)
 
-pars <- c("alpha", "mu_alpha", "sd_alpha", "beta_age", "beta_female", "gamma", "mu_gamma", "sd_gamma", "rate_of_change", "yrep")
+pars <- c(
+    "alpha",
+    "mu_alpha",
+    "sd_alpha",
+    "beta_age",
+    "beta_female",
+    "gamma",
+    "mu_gamma",
+    "sd_gamma",
+    "rate_of_change",
+    "yrep"
+  )
 
 # Sampling
 set.seed(2292) 
@@ -214,10 +254,17 @@ sgaj_draws <- as_draws(samples)
 ## 2.4 Summarising posterior distributions of key quantities of interest
 ```{r}
 # Function that returns posterior summary for only specified parameters. 
-# The summmary includes the 2.5%, 50%, 97.5% quantiles, convergence measures (rhat, ESS), and monte carlo standard error 
+# The summmary includes the 2.5%, 50%, 97.5% quantiles, 
+# convergence measures (rhat, ESS), and monte carlo standard error 
 get_posterior_summary <- function(draws, pars) {
   subsetted_draws <- subset_draws(draws, variable = pars)
-  summary_subsetted_draws <- summary(subsetted_draws, ~quantile(.x, probs = c(0.025, 0.5, 0.975)), default_convergence_measures(), c("mcse_mean", "mcse_median"))
+  summary_subsetted_draws <-
+    summary(
+      subsetted_draws,
+      ~ quantile(.x, probs = c(0.025, 0.5, 0.975)),
+      default_convergence_measures(),
+      c("mcse_mean", "mcse_median")
+    )
   
   return(summary_subsetted_draws)
 }
@@ -225,7 +272,8 @@ get_posterior_summary <- function(draws, pars) {
 
 ### 2.4.1 Random intercept
 ```{r}
-mcmc_trace(samples, pars=c(paste0("alpha[",1:12,"]")))
+mcmc_trace(samples, pars=c(paste0("alpha[",1:12,"]"))) +
+  scale_x_continuous(breaks = function(x) c(0, 10000, 20000))
 print(get_posterior_summary(sgaj_draws, c(paste0("alpha[",1:12,"]"))))
 ```
 **Convergence:** The traceplots suggest a well-mixed distribution ("fat hairy caterpillar" appearance), indicating stable estimates with random dispersion around the mean. The overlap of both chains and an $\hat{R}$ value of 1.00 (3 s.f.) for all parameters show no signs of convergence issues. This implies that within-chain and between-chain variances are comparable. The ESS values range from approximately 36,000 to 40,000 for both bulk and tail. High ESS values suggest that the sample provides a reliable approximation of the posterior distribution, reducing the error in our estimates and increasing the confidence in statistical inferences. The monte carlo standard error (MCSE) values for the mean range from 0.16 to 0.21 and for the median from 0.18 to 0.26. These values indicate the variability of the estimate if the entire Monte Carlo simulation were repeated under the same conditions. Given the magnitude of the estimated parameters, the observed MCSE values are low, which substantiates the precision and reliability of our estimates.
@@ -241,12 +289,14 @@ print(get_posterior_summary(sgaj_draws, c("beta_age", "beta_female")))
 **Convergence:** The traceplots show stable mean with random dispersion around the mean and both chains overlap. The $\hat{R}$ statistic is estimated to be 1.00, giving no suggestion of any lack of convergence. The mean MCSE values for both are smaller than 0.05. 
 
 **Interpretation:** 
-- The median value of the \(\beta_{age}\) coefficient at 19.3 indicates that SGAJ levels typically rise by about 19.3 (3.99-34.3) units for each decade past 50 years, and decrease by the same amount per decade before 50 (all other values held constant at their reference levels). 
+- The median value of the \(\beta_{age}\) coefficient at 19.3 indicates that SGAJ levels typically rise by about 19.3 (3.99-34.3) units for each decade past 50 years, and decrease by the same amount per decade before 50 (all other values held constant at their reference levels).
+
 - The \(\beta_{female}\) coefficient's median at 6.14 suggests males have SGAJ levels that are typically 6.14 units higher than females (all other things constant), but with a broad 95% credible interval from -13.0 to 25.3, there is considerable uncertainty around this effect. 
 
 ### 2.4.3 Random slope
 ```{r}
-mcmc_trace(samples, pars=c(paste0("gamma[",1:12,"]")))
+mcmc_trace(samples, pars=c(paste0("gamma[",1:12,"]"))) +
+  scale_x_continuous(breaks = function(x) c(0, 10000, 20000))
 print(get_posterior_summary(sgaj_draws, c(paste0("gamma[",1:12,"]"))))
 ```
 *Convergence:* The traceplots show stable mean with random dispersion around the mean and both chains overlap. The $\hat{R}$ statistic is estimated to be 1.00 across all the gammas (no suggestion of any lack of convergence). The mean MCSE values are between 0.08 and 0.18. 
@@ -258,8 +308,6 @@ print(get_posterior_summary(sgaj_draws, c(paste0("gamma[",1:12,"]"))))
 ```{r}
 # Check convergence for random intercept (alpha).
 mcmc_trace(samples, pars=c("mu_alpha", "sd_alpha", "mu_gamma", "sd_gamma"))
-# TODO: about sd: the margenalised prior is equal to the margenalised posterior. The data doesn't further constraint of the uncertainty of alpha.
-
 get_posterior_summary(sgaj_draws, c("mu_alpha", "sd_alpha", "mu_gamma", "sd_gamma"))
 ```
 
@@ -267,24 +315,26 @@ get_posterior_summary(sgaj_draws, c("mu_alpha", "sd_alpha", "mu_gamma", "sd_gamm
 
 *Interpretation:* 
 - The median posterior estimate for mu_alpha at 264 (231, 297) suggests that the average baseline SGAJ level across the population (reference conditions) is approximately 265 units, a higher value than the suggested average SGAJ (225) from the previous cohort. The posterior median for sigma_alpha (standard deviation across all individuals) at reference conditions is 91.8 (80.8, 99.6) which is also slightly higher than the value suggested from the previous study.
+
 - The median value for mu_gamma at 10.5 implies an average rate of increase across the population (reference conditions) of about 10.5 units in SGAJ levels every 6 hours. However, the broad 95% credible interval from -4.51 to 23.8 indicates substantial uncertainty, suggesting that in some scenarios, SGAJ levels might even decrease. The median of sd_gamma at 22.2, with a range from 2.152 to 50.1, reflects high variability in the rate of change of SGAJ levels among patients. This suggests that individual responses to treatment vary notably.
 
 ## 2.5 Visualising rate of change per day per patient
 
 ```{r}
-# Get dataframe for rate of change variable - showing 
-rate_of_change_df <- get_posterior_summary(sgaj_draws, c("rate_of_change"))[,c("2.5%", "50%", "97.5%")]
+# Get dataframe for rate of change variable
+rate_of_change_df <-
+  get_posterior_summary(sgaj_draws, c("rate_of_change"))[, c("2.5%", "50%", "97.5%")]
 colnames(rate_of_change_df) <- c("lower", "median", "upper")
 rate_of_change_df$patient <- as.factor(1:12)
 
+# Combine rate_of_change_df with the original dataset (to get patient details)
 unique_sgaj <- sgaj %>%
   select(patient, female, age) %>%
-  distinct() %>% mutate(patient = as.factor(unique_sgaj$patient))
+  distinct() %>% mutate(patient = as.factor(patient))
 
 rate_of_change_df <- rate_of_change_df %>%
   left_join(unique_sgaj, by = "patient") %>%
   mutate(patient = reorder(patient, median))
-
 
 # Plotting the data with facets and ages as labels
 ggplot(rate_of_change_df, aes(x = patient, y = median, color = as.factor(female))) +
@@ -292,7 +342,7 @@ ggplot(rate_of_change_df, aes(x = patient, y = median, color = as.factor(female)
   geom_text(aes(label = age, vjust = 5, hjust=-0.5), size = 3) +  # Add age labels
   scale_color_manual(values = c("blue", "pink"), labels = c("Male", "Female")) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
   theme_classic() +
   theme(
     axis.text.x = element_text(size = 10), 
@@ -303,6 +353,7 @@ ggplot(rate_of_change_df, aes(x = patient, y = median, color = as.factor(female)
     y = expression(Rate~of~Change~(mu*mol/L)),
     x = "Patient (Ordered by Median Rate of Change)",
     title = "Rate of Change in SGAJ Levels Per Day Across Patients",
+    subtitle = "Age reported next to each patient; Grey dashed line at rate of change = 0",
     color = "Gender",
     size = "Age"
   )
@@ -362,15 +413,16 @@ samples_miss <- coda.samples(jags_model_miss,
                         variable.names = pars_miss,
                         n.iter = 200000,
                         thin=10)
-samples_miss_draws <- as_draws(samples_miss)
+sgaj_miss_draws <- as_draws(samples_miss)
 
 # Get last yrep - which is the one for patient 12 at 30 hours.
-y.pred <- extract_variable(samples_miss_draws,  paste0("yrep[",data_miss$n,"]"))
+y.pred <- extract_variable(sgaj_miss_draws,  paste0("yrep[",data_miss$n,"]"))
 
 # Find probability (based on posterior predictive distribution) that it is above 500. 
 mean(y.pred > 500)
 ```
-The model suggests that the probability for the patient to be measured above 500 μmol/L at 30 hours after SEYAB administration is 0.32.
+The probability of SGAJ levels for patient id = 12 exceeding 500 $\mu mol/L$ at 30 hours after SEYAB administration is estimated at approximately 0.317 (31.7%). This prediction considers individual factors such as age, gender, and patient-specific drug response trajectories, which helps in tailoring the forecast to patient id = 12, potentially aiding in personalized clinical decision-making. Moreover, it integrates both the uncertainty of the model parameters and the observed variability among patients, offering a probabilistic assessment rather than a fixed estimate. However, it’s important to note that this extrapolation to 30 hours carries additional uncertainty since the model was initially calibrated only with data from the first 24 hours. Furthermore, the reliability of this prediction is bounded by the model’s assumptions and inherent limitations (as explained in section 2.6).
+
 
 ```{r}
 # get ids of patient 12 - to use to get yrep.
@@ -380,8 +432,8 @@ ids_patient_12 <- rownames(sgaj_miss[sgaj_miss$patient == 12, ])
 sgaj_miss_patient_12 <- sgaj_miss[sgaj_miss$patient == 12, ] %>% 
   mutate(index = 1:6)
 
-# Get summary for mu (fitted mean) and yrep (posterior predictive)
-samples_miss_mu_pp <- summary(subset_draws(samples_miss_draws, c(
+# Get summary for mu (fitted mean) and yrep (posterior predictive) for patient 12
+samples_miss_mu_pp <- summary(subset_draws(sgaj_miss_draws, c(
     paste0("mu[", ids_patient_12, "]"),
     paste0("yrep[", ids_patient_12, "]")
   )), ~ quantile(.x, probs = c(0.025, 0.5, 0.975))) %>% mutate(
@@ -393,7 +445,7 @@ samples_miss_mu_pp <- summary(subset_draws(samples_miss_draws, c(
     )
 )
 
-# Combine datasets
+# Combine dataframes
 combined_df_patient_12 <-
   samples_miss_mu_pp %>% left_join(sgaj_miss_patient_12, by = "index")  %>%
   mutate(
@@ -401,37 +453,101 @@ combined_df_patient_12 <-
     measured = if_else(is.na(measured), `50%`, measured)
   )
 
-ggplot(combined_df_patient_12, aes(x=time, y=measured)) + 
-  geom_ribbon(aes(ymin=`2.5%`,ymax=`97.5%`,fill=Uncertainty), alpha = 0.15) + 
-  geom_hline(yintercept = 500, linetype = "dashed", color = "gray") +
-  geom_point(aes(col = Point)) + 
-  theme_classic()
+# Get posterior summaries (mu and yrep) table for patient 12 at time 30.
+posterior_summaries_patient_12_30_hours <-
+  combined_df_patient_12[combined_df_patient_12$time == 30, c("variable",
+                                                              "2.5%",
+                                                              "50%",
+                                                              "97.5%",
+                                                              "patient",
+                                                              "age",
+                                                              "female",
+                                                              "time")]
+print(posterior_summaries_patient_12_30_hours)
+
+# Create plot for predicted and observed values for patient 12.
+ggplot(combined_df_patient_12, aes(x = time, y = measured)) +
+  geom_ribbon(aes(ymin = `2.5%`, ymax = `97.5%`, fill = Uncertainty), alpha = 0.15) +
+  geom_hline(yintercept = 500,
+             linetype = "dashed",
+             color = "blue") +
+  geom_point(size = 3, aes(color = Point, shape = Point)) +
+  scale_shape_manual(values = c(16, 17)) +
+  scale_x_continuous(breaks = seq(0, max(combined_df_patient_12$time), by = 6)) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.ticks = element_line(size = 1)
+  ) +
+  labs(
+    x = "Time (hours)",
+    y = expression(Measured ~ SGAJ ~ levels ~ (mu * mol / L)),
+    title = "Predicted and Observed SGAJ Levels over Time for Patient 12",
+    subtitle = "Blue dashed line representing the 500 SGAJ level threshold",
+  ) +
+  guides(color = guide_legend(title = "Point"),
+         shape = guide_legend(title = "Point"))
+
 ```
+The plot shows patient id = 12’s observed and predicted (time=30) SGAJ levels along with the 95% CI uncertainty bands for the fitted mean and posterior-predictive distributions. The following insights can be drawn from the plot and the table:
+
+- For the fitted mean (mu), the 50% percentile is 452 (343, 579) $\mu mol/L$ which suggests the model's central estimate is below the 500  $\mu mol/L$ threshold, but the upper range of the credible interval does surpass it.
+
+- The posterior predictive distribution (yrep), which accounts for both the uncertainty in the model parameters and the additional variability in future observations, has a median of 454  $\mu mol/L$ and a wider 95% credible interval from 268 to 646  $\mu mol/L$. The fact that the 97.5% percentile of the posterior-predicteve distribution is considerably higher than 500 confirms that there is indeed a possibility of substantially higher SGAJ levels, though not the most probable outcome.
+
+- The slightly wider uncertainty band at the 30-hour prediction (compared to the other points) highlights the model's increasing uncertainty with time, emphasizing that predictions further from the last observed data point should be treated with more caution.
 
 # Part 4
 ```{r}
-# get posterior predictive distribution for patient with id=3. From the original model (not the one with missing)
-index_patient_3_time_18 <- rownames(sgaj[sgaj$patient == 3 & sgaj$time==18,])
+# get posterior predictive distribution for patient with id=3. 
+# From the original model (not the one with missing)
+index_patient_3_time_18 <-
+  rownames(sgaj[sgaj$patient == 3 & sgaj$time == 18, ])
 
-yrep_patient_3_time_18 <- extract_variable(sgaj_draws, paste0("yrep[",index_patient_3_time_18,"]")) %>% as_tibble()
+# Get summary for posterior-predictive distribution of patient 3 at time=18.
+yrep_patient_3_time_18 <-
+  extract_variable(sgaj_draws, paste0("yrep[", index_patient_3_time_18, "]")) %>% 
+  as_tibble()
 summary(yrep_patient_3_time_18)
 
-obs_patient_3_time_18 <- as.numeric(sgaj[index_patient_3_time_18,]$measured)
-     
-# Calculate the p-value
-p_value <- mean(yrep_patient_3_time_18$value < obs_patient_3_time_18)
+obs_patient_3_time_18 <-
+  as.numeric(sgaj[index_patient_3_time_18, ]$measured)
 
-# Create the plot
+# Calculate the p-value
+p_value <-
+  mean(yrep_patient_3_time_18$value < obs_patient_3_time_18)
+
+# Posterior-predictive check plot
 yrep_patient_3_time_18 %>%
   ggplot(aes(x = value)) +
   geom_density() +  # Plotting the density
-  geom_vline(aes(xintercept = obs_patient_3_time_18), color="blue", linetype="dashed", linewidth=1) +  # Observed value line
-  annotate("text", x = obs_patient_3_time_18, y = 0, label = paste0("p = ", round(p_value, 3)), color = "blue") +  # Adding the p-value annotation
-  labs(x = "Measured SGAJ", y = "Density") +  # Adding labels
-  theme_classic()  # Using classic theme
+  geom_vline(
+    aes(xintercept = obs_patient_3_time_18),
+    color = "blue",
+    linetype = "dashed",
+    linewidth = 1
+  ) +  # Observed value line
+  annotate(
+    "text",
+    x = obs_patient_3_time_18,
+    y = 0,
+    label = paste0("p = ", round(p_value, 3)),
+    color = "blue"
+  ) +  # p-value annotation
+  labs(
+    x = expression(Measured ~ SGAJ ~ levels ~ (mu * mol / L)),
+    y = "Density",
+    title = "Posterior Predictive Check for SGAJ Levels at 18 Hours",
+    subtitle = "Observed SGAJ level indicated by the blue dashed line"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.ticks = element_line(size = 1)
+  ) 
 ```
-Because of the conservatism of p-values the very large p-value that we got, likely indicates that the posterior distribution for patient 3 lacks fit to the data.
+The observed SGAJ level (indicated by the dashed blue line) falls well outside the bulk of the predictive distribution (p-value=0.993). A p-value of 0.993 in a posterior predictive check indicates that the observed SGAJ level is higher than 99.3% of the levels predicted by the model for this particular patient and time point. This indicates that, at least for this particular patient at this time point, the model lacks fit to the data. The second interpretation is that this particular observation could be an outlier and may not be indicative of the typical patient's response. This could be due to unique individual factors influencing the patient's metabolism of SEYAB, an unusual interaction with other variables not accounted for in the model, or even measurement error or data recording anomalies.
 
-either outlier or the model is not good enough. In either case comment that we have very few samples.
-
-# TODO: add comment however very high compared to others! perhaps outlier!
+This may also signal the need for further model refinement or the inclusion of additional data or covariates to improve the model's predictive accuracy.
