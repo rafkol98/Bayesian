@@ -8,6 +8,7 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+# Load required packages.
 library(tidyverse)
 library(dplyr)
 library(rjags)
@@ -89,12 +90,12 @@ The plot shows the trajectory of SGAJ level (across the timepoints) for each pat
 - **Exchangeability:** Before considering the data, we treat all patients as essentially the same. The prior distributions for the group-specific parameters \( \alpha_i\) and \(\gamma_i\) reflect this assumption. After seeing the data, the model allows these parameters to differ, but the starting point is a belief in their similarity.
 
 ## 2.2 Model formulation
-The SGAJ level for each patient \(i\) at time \(t\) is modeled as a normal distribution with mean \(\mu_{it}\), the expected measurement at reference values, and a fixed standard deviation of 75, as per the brief's suggestion. This formulation utilizes a re-parameterization (reference conditions - age=50, female=1, time=12 hours) that aligns with the prior study's findings as detailed in the brief, ensuring we can use prior knowledge about SGAJ levels.
+The SGAJ level for each patient \(i\) at time \(t\) is modeled as a normal distribution with mean \(\mu_{it}\), the expected measurement at reference values, and a fixed standard deviation of 75, as per the brief's suggestion. This formulation utilizes a re-parameterization (reference conditions - age=50, female=1, time=12 hours) that allows us to use previous study's findings as prior knowledge.
 $$
 y_{it} \sim \mathcal{N}(\mu_{it}, 75^2)
 $$
 $$
-\mu_{it} = \alpha_i + \beta_{\text{age}}\left(\text{age}_i - 50 \right)/10 + \beta_{\text{female}}(1- \text{female}_i) + \gamma_{i}\left(\text{time}_t - 12 \right)/6
+\mu_{it} = \alpha_i + \beta_{\text{age}}\left(\text{age}_i - 50 \right)/10 + \beta_{\text{sex}}(1- \text{female}_i) + \gamma_{i}\left(\text{time}_t - 12 \right)/6
 $$
 
 ### 2.2.1 Priors on alpha
@@ -109,21 +110,22 @@ $$
 \sigma_a \sim \text{Uniform}(80, 100)
 $$
 
-- I am assuming that the random intercept $a_i$ representing the deviation in baseline SGAJ level for each patient from the population average under reference conditions (age=50, female=1, time=12 hours), follows a Normal distribution. 
+- I am assuming that the random intercept $a_i$ representing the individual baseline level of SGAJ for patient `i` when all other covariates in the model are at their reference levels (age=50, female=1, time=12 hours), follows a Normal distribution. 
 
-- $\mu_a$ represents the average value (intercept) across the population for the reference group when other predictors are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 225. The standard deviation of $\mu_a$ is calculated as (265-185)/(1.96*2)=20.41, with a 95% upper and lower credible limit of 265 and 185 respectively.
+- $\mu_a$ represents the average value of SGAJ across the population for the reference group when other predictors are held at their reference levels. Being influenced by the information from the previous study, I am assuming that $\mu_a$ has an average value of 225. The standard deviation of $\mu_a$ is calculated as (265-185)/(1.96*2)=20.41, with a 95% upper and lower credible limit of 265 and 185 respectively.
 
 - For the random effects standard deviation $\sigma_a$, I am setting it as a uniform distribution between 80 and 100 to account for some uncertainty around the value 90 suggested from the previous study (they said "roughly" 90 and it is also a separate study).
 
-### 2.2.2 Priors on beta_age and beta_female
-The terms involving $\beta_{age}$, and $\beta_{female}$ correspond to the fixed effects of age (centered around the age of 50 and scaled such that a unit increase is in 10 years), and female (has the value 1 if female and zero otherwise), respectively. 
+### 2.2.2 Priors on beta_age and beta_sex
+The term \(\beta_{\text{age}}\) corresponds to the fixed effect of age, centered around the age of 50 and scaled such that a unit increase represents a change in 10 years. The term \(\beta_{\text{sex}}\) is associated with the effect of being male, as the coding \(1 - \text{female}_i\) will introduce the effect for males (\(\text{female}_i = 0\)) and will be zero for females (\(\text{female}_i = 1\)) - effectively making it a male effect term in the model.
 $$
 \beta_{\text{age}} \sim \mathcal{N}(0, 10^2)
 $$
 $$
-\beta_{\text{female}} \sim \mathcal{N}(0.1, 10^2)
+\beta_{\text{sex}} \sim \mathcal{N}(0.1, 10^2)
 $$
-- As stated in the brief, the effect of $\beta_{age}$ and $\beta_{female}$ is not well understood, therefore I am assuming vague priors and relying on data to inform these relationships. For the prior of $\beta_{female}$, I am subtly incorporating the expectation that males may have slightly higher SGAJ levels than females (as explained by the principal investigator).
+
+- As stated in the brief, the effect of $\beta_{age}$ and $\beta_{sex}$ is not well understood, therefore I am assuming vague priors and relying on data to inform these relationships. For the prior of $\beta_{sex}$, I am subtly incorporating (by setting the mean to 0.1) the expectation that males may have slightly higher SGAJ levels than females (as explained by the principal investigator).
 
 ### 2.2.3 Priors on gamma
 \(\gamma_{i}\) is modelled as a random effect and represents the patient-specific rate of change of SGAJ levels - capturing individual variability in response to the drug over time. The term \(\gamma_{i}(time_t - 12)/6\) normalizes this rate of change to a 6-hour period; without this random slope, we would observe only different initial SGAJ levels but uniform rates of change across individuals. I am assuming that \(\gamma_{i}\) follows a normal distribution with mean \(\mu_{\gamma}\) and variance \(\sigma_{\gamma}^2\).
@@ -164,7 +166,7 @@ model <- "model{
   # Linear regression model
   for (i in 1:n) {
     mu[i] <- alpha[patient[i]] + beta_age*(age[i]-50)/10 + 
-      beta_female*(1-female[i]) + gamma[patient[i]]*(time[i]-12)/6
+      beta_sex*(1-female[i]) + gamma[patient[i]]*(time[i]-12)/6
     y[i] ~ dnorm(mu[i], prec_psi)
     yrep[i] ~ dnorm(mu[i], prec_psi) # posterior-predictive distribution
   }
@@ -178,7 +180,7 @@ model <- "model{
 
   # Priors for fixed effects
   beta_age ~ dnorm(0, 1/(10^2))
-  beta_female ~ dnorm(0.1, 1/(10^2))
+  beta_sex ~ dnorm(0.1, 1/(10^2))
 
   # Prior for the population average of the random intercepts
   mu_alpha ~ dnorm(225, 1/(20.41^2))
@@ -207,7 +209,7 @@ initial_values <-
       mu_gamma = 0,
       sd_gamma = 20,
       beta_age = 0,
-      beta_female = 0,
+      beta_sex = 0,
       .RNG.name = c("base::Mersenne-Twister"),
       .RNG.seed = 20
     ),
@@ -217,7 +219,7 @@ initial_values <-
       mu_gamma = 1,
       sd_gamma = 50,
       beta_age = 1,
-      beta_female = 1,
+      beta_sex = 1,
       .RNG.name = c("base::Mersenne-Twister"),
       .RNG.seed = 42
     )
@@ -241,7 +243,7 @@ pars <- c(
     "mu_alpha",
     "sd_alpha",
     "beta_age",
-    "beta_female",
+    "beta_sex",
     "gamma",
     "mu_gamma",
     "sd_gamma",
@@ -289,13 +291,13 @@ print(get_posterior_summary(sgaj_draws, c(paste0("alpha[",1:12,"]"))))
 ```
 **Convergence:** The traceplots suggest a well-mixed distribution ("fat hairy caterpillar" appearance), indicating stable estimates with random dispersion around the mean. The overlap of both chains and an $\hat{R}$ value of 1.00 (3 s.f.) for all parameters show no signs of convergence issues. This implies that within-chain and between-chain variances are comparable. The effective sample size (ESS) values are high for both bulk and tail ranging from approximately 36,000 to 40,000. The monte carlo standard error (MCSE) values for the mean range from 0.16 to 0.21 and for the median from 0.18 to 0.26. Given the magnitude of the estimated parameters, the observed MCSE values are low, which substantiates the precision and reliability of our estimates.
 
-**Interpretation:** The median values (50% quantile), representing the central tendency of the random intercept estimates, demonstrate considerable variation across patients. Notably, patient 6 exhibits both the lowest median at 234 and the narrowest 2.5% to 97.5% quantile interval, ranging from 169 to 298. Conversely, patient 3 shows the highest median at 510, accompanied by the broadest interval from 433 to 591. 
+**Interpretation:** The median values (50% quantile), representing the central tendency of the random intercept estimates, demonstrate considerable variation across patients - different individual baseline level of SGAJ. Notably, patient 6 exhibits both the lowest median at 234 and the narrowest 2.5% to 97.5% quantile interval, ranging from 169 to 298. Conversely, patient 3 shows the highest median at 511, accompanied by the broadest interval from 433 to 591. 
 
 ### 2.4.2 Fixed effects
 
 ```{r}
-mcmc_trace(samples, pars=c("beta_age", "beta_female"))
-print(get_posterior_summary(sgaj_draws, c("beta_age", "beta_female")))
+mcmc_trace(samples, pars=c("beta_age", "beta_sex"))
+print(get_posterior_summary(sgaj_draws, c("beta_age", "beta_sex")))
 ```
 **Convergence:** The traceplots show stable mean with random dispersion around the mean and both chains overlap. The $\hat{R}$ statistic is estimated to be 1.00, giving no suggestion of any lack of convergence. Both have large ess_bulk and ess_tail values. The mean MCSE values for both are smaller than 0.05. 
 
@@ -303,7 +305,7 @@ print(get_posterior_summary(sgaj_draws, c("beta_age", "beta_female")))
 
 - The median value of the \(\beta_{age}\) coefficient at 19.3 indicates that SGAJ levels typically rise by about 19.3 (3.99-34.3) units for each decade past 50 years, and decrease by the same amount per decade before 50 (all other values held constant at their reference levels).
 
-- The \(\beta_{female}\) coefficient's median at 6.14 suggests males have SGAJ levels that are typically 6.14 units higher than females (all other things constant), but with a broad 95% credible interval from -13.0 to 25.3, there is considerable uncertainty around this effect. 
+- The \(\beta_{sex}\) coefficient's median at 6.14 suggests males have SGAJ levels that are typically 6.14 units higher than females (all other things constant), but with a broad 95% credible interval from -13.0 to 25.3, there is considerable uncertainty around this effect. 
 
 ### 2.4.3 Random slope
 ```{r}
@@ -313,7 +315,7 @@ print(get_posterior_summary(sgaj_draws, c(paste0("gamma[",1:12,"]"))))
 ```
 **Convergence:** The traceplots show a stable mean with random dispersion around it, and the two chains overlap. The $\hat{R}$ statistic is estimated to be 1.00 across all gammas (no indication of a lack of convergence). Almost all gamas have large ess_bulk and ess_tail values. The average MCSE value ranges between 0.08 and 0.18. Compared to other samples, patient 3 has a lower ess and a higher mcse. This suggests that patient 3's random slope estimate is less precise than in other patients.
 
-**Interpretation:** The summary statistics for the patient-specific rate of change of SGAJ levels (gamma[1]-gamma[12]) across 12 patients reveal considerable diversity in response dynamics, both in magnitude and direction. Median estimates range from a decrease of -8.40 in patient 8 every 6 hours to a substantial increase of 43.5 in patient 3, illustrating the complex and individualized nature of biological responses to treatment.
+**Interpretation:** The summary statistics for the patient-specific rate of change in SGAJ levels every 6 hours (gamma[1]-gamma[12]) across the 12 patients show substantial variation in response dynamics, both in magnitude and direction. Median estimates range from a decrease of -8.40 (-53.7, 22.4) in patient 8 to a substantial increase of 43.5 (7.54, 93.7) in patient 3, illustrating the complex and individualized nature of biological responses to treatment. All gammas have relatively wide 95% credible interval, reflecting uncertainty.
 
 ### 2.4.4 Hyper-parameters 
 
@@ -327,9 +329,9 @@ get_posterior_summary(sgaj_draws, c("mu_alpha", "sd_alpha", "mu_gamma", "sd_gamm
 
 **Interpretation:** 
 
-- The median posterior estimate for mu_alpha at 264 (231, 297) suggests the average baseline SGAJ level across the population (reference conditions) - a higher value than the suggested average SGAJ (225) from the previous cohort. The posterior median for sigma_alpha (standard deviation across all individuals) at reference conditions is 91.8 (80.8, 99.6) which is also slightly higher than the value (90) suggested from the previous study.
+- The median posterior estimate for mu_alpha at 264 (231, 297) suggests the average baseline SGAJ level across the population (reference conditions) is higher than the suggested average SGAJ (225) from the previous cohort. The posterior median for sigma_alpha (standard deviation across all individuals) at reference conditions is 91.8 (80.8, 99.6) which is also slightly higher than the value (90) suggested from the previous study.
 
-- The median value for mu_gamma at 10.5 implies an average rate of increase across the population (reference conditions) of about 10.5 units in SGAJ levels every 6 hours. However, the broad 95% credible interval from -4.51 to 23.8 indicates substantial uncertainty. The median of sd_gamma at 22.2, with a range from 2.152 to 50.1, reflects high variability in the rate of change of SGAJ levels among patients. This suggests that individual responses to treatment vary notably.
+- The median value for mu_gamma at 10.5 implies an average rate of increase across the population (reference conditions) of about 10.5 units in SGAJ levels every 6 hours. However, the broad 95% credible interval from -4.51 to 23.8 indicates substantial uncertainty. The median of sd_gamma at 22.2, with a range from 2.152 to 50.1, reflects high variability in the rate of change of SGAJ levels among patients - suggesting that individual responses to treatment vary notably.
 
 ## 2.5 Visualising rate of change per day per patient
 
@@ -375,11 +377,11 @@ ggplot(rate_of_change_df, aes(x = patient, y = median, color = as.factor(female)
 ```
 The plot shows the rate of change of SGAJ levels per day for each patient (ordered by the median rate of change). The age of each patient is placed close to their corresponding point. The following insights can be drawn:
 
-- All patients except patient 8 show an increase in SGAJ levels per day as indicated by positive median values. However, the wide error bars, which represent the 95% confidence intervals, introduce a notable degree of uncertainty into these estimates. For almost all patients, except number 3, this uncertainty extends into the possibility of a decrease in SGAJ levels, as indicated by confidence intervals that straddle the zero line. Some patients (like patient 3) exhibit larger intervals, denoting less precise estimates, whereas others (e.g., patient 2) show narrower intervals.
+- All patients except patient 8 show an increase in SGAJ levels per day as indicated by positive median values. However, the wide error bars, which represent the 95% confidence intervals, introduce a notable degree of uncertainty into these estimates. For almost all patients, except number 3, this uncertainty extends into the possibility of a decrease in SGAJ levels, as indicated by confidence intervals that straddle the zero line. Some patients (e.g., patient 3) exhibit larger intervals, denoting less precise estimates, whereas others (e.g., patient 2) show narrower intervals.
 
-- While the plot does not reveal a definitive linear relationship between age and the rate of change in SGAJ levels, there is a discernible cluster of older individuals—specifically patients 10, 12, and 3—who exhibit a high rate of change. This observation tentatively suggests that age may influence a heightened response within the initial 24-hour period. However, this potential trend is also conflicted by the presence of older patients 7 and 5, aged 88 and 69 respectively, who demonstrate a slower rate of change, indicating that additional factors may influence the rate of change beyond age alone.
+- While the plot does not show a clear linear relationship between age and the rate of change in SGAJ levels, there is a discernible cluster of older individuals—specifically patients 10, 12, and 3—who have a high rate of change, implying that older age may influence a faster rate of change. However, the presence of older patients 7 and 5, aged 88 and 69, who show a slower rate of change, contradicts this potential trend, indicating that factors other than age may influence the rate of change.
 
-- Differentiating patients by gender shows that both males (blue) and females (pink) are present across the spectrum of the rate of change. There isn't a clear gender-based trend;
+- Differentiating patients by gender shows that both males (blue) and females (pink) are present across the spectrum of the rate of change. There appears not to be a clear gender-based trend;
 
 - The inter-patient variability underscores the personalized nature of the biological response to treatment, suggesting that factors such as age, gender, and possibly others that were not measured (e.g., underlying health conditions or genetic factors) play a role in SGAJ level changes. Such variability highlights the potential need for personalized approaches to treatment dosing and monitoring to account for these differences.
 
@@ -393,7 +395,6 @@ The plot shows the rate of change of SGAJ levels per day for each patient (order
 - Since we have data only for the first 24 hours post-administration, the model may not generalize well to later time points, such as the 30-hour mark required by Task 3. Biological behavior beyond the first 24 hours could differ significantly.
 
 - While individual-specific intercepts and slopes tailor the model to each patient, more data points per patient and more patients overall would enhance the robustness of estimates. The limited number of patients (12) we have may skew our interpretations.
-
 
 # Part 3
 I am adding a new row for patient 12 with timepoint=30 and measured SGAJ=NA. The model will make a prediction for the measured SGAJ using the posterior-predictive distribution.
@@ -435,9 +436,9 @@ y.pred <- extract_variable(sgaj_miss_draws,  paste0("yrep[",data_miss$n,"]"))
 # Find probability (based on posterior predictive distribution) that it is above 500. 
 mean(y.pred > 500)
 ```
-The probability of SGAJ levels for patient id = 12 exceeding 500 $\mu mol/L$ at 30 hours after SEYAB administration is estimated at approximately 0.317 (31.7%). This prediction considers individual factors such as age, gender, and patient-specific intercept and rate of change, which helps in tailoring the forecast to patient id = 12. However, it’s important to note that this extrapolation to 30 hours carries additional uncertainty since the model was initially calibrated only with data from the first 24 hours. Furthermore, the reliability of this prediction is bounded by the model’s assumptions and inherent limitations (as explained in section 2.6).
+The probability of SGAJ levels for patient 12 exceeding 500 $\mu mol/L$ at 30 hours after SEYAB administration is estimated at approximately 0.317 (31.7%). This prediction considers individual factors such as age, gender, and the patient-specific intercept and rate of change, which helps in tailoring the forecast. However, it’s important to note that the reliability of this prediction is bounded by the model’s assumptions and inherent limitations (as explained in section 2.6).
 
-
+To closely examine how a predicted SGAJ level of 500 µmol/L aligns with the observed trajectory for patient 12, I am creating a visualization that presents both the fitted mean and the posterior predictive distribution across the time points.
 ```{r}
 # get ids of patient 12 - to use to get yrep.
 ids_patient_12 <- rownames(sgaj_miss[sgaj_miss$patient == 12, ])
@@ -504,11 +505,11 @@ ggplot(combined_df_patient_12, aes(x = time, y = measured)) +
          shape = guide_legend(title = "Point"))
 
 ```
-The plot shows the 12 patient's observed and predicted (time=30) SGAJ values along with the 95% CI uncertainty bands for the fitted mean and posterior-predictive distributions. The following insights can be drawn from the plot and the table:
+The plot shows the patient's observed and predicted (time=30) SGAJ values along with the 95% CI uncertainty bands for the fitted mean and posterior-predictive distributions. The following insights can be drawn from the plot and the table:
 
 - For the fitted mean (mu[61]), the 50% percentile is 452 (343, 579) $\mu mol/L$ which suggests the model's central estimate is below the 500  $\mu mol/L$ threshold, but the upper range of the credible interval does surpass it.
 
-- The posterior predictive distribution (yrep[61]) has a median of 454  $\mu mol/L$ and a wider 95% credible interval from 268 to 646  $\mu mol/L$. The fact that the 97.5% percentile of the posterior-predicteve distribution is considerably higher than 500 confirms that there is indeed a possibility of substantially higher SGAJ levels, though not the most probable outcome.
+- The posterior predictive distribution (yrep[61]) has a median of 454 (predicted value - shown as a blue triangle)  $\mu mol/L$ and a wider 95% credible interval from 268 to 646  $\mu mol/L$. The fact that the 97.5% percentile of the posterior-predicteve distribution is considerably higher than 500 confirms that there is indeed a possibility of substantially higher SGAJ levels, though not the most probable outcome.
 
 # Part 4
 ```{r}
@@ -615,3 +616,5 @@ ggplot(data_combined, aes(x = p_values, fill = group)) +
   )
 ```
 The plot displays the Bayesian p-values for all of patient id =3 time points, as well as all observations in the dataset. While there are a few cases with very high or low p-values, the histogram of all patients (left-hand side) shows a majority cluster of Bayesian p-values around 0.5, indicating a general concordance between the model's predictions and observed data. For patient 3, the histogram (right-hand side) shows that the p-values for the other time points are generally much closer to 0.5 (except for one point, which is around 0.2), implying that the model predictions for this patient are also largely consistent with the observed data and that the measured SGAJ at 18 hours after SEYAB administration was most likely an extreme value.
+
+In an extended timeline for a real-world application, I would try to improve the model's robustness and accuracy by refining it using informative priors from clinical experts and actively validating it using sensitivity analysis and cross-validation.
