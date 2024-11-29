@@ -1,6 +1,6 @@
 # Bayesian Statistics Coursework
 
-This repository contains the materials and code for my Bayesian statistics coursework as part of the MPhil in Health Data Science program. The coursework focuses on analyzing patient-specific biomarker data using Bayesian hierarchical modeling.
+This repository contains the materials and code for my Bayesian statistics coursework as part of the MPhil in Health Data Science program, University of Cambridge. The coursework focuses on analyzing patient-specific biomarker data using Bayesian hierarchical modeling.
 
 The pdf file (`Bayesian_coursework.pdf`) contains my full analysis.
 
